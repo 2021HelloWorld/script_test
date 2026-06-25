@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 01_setup_cdi.sh — 安装 nvidia-container-toolkit 并生成 CDI 规格文件
+# 02_setup_cdi.sh — 安装 nvidia-container-toolkit 并生成 CDI 规格文件
 # 运行位置：宿主机
 # 运行时机：首次部署 / 重装驱动后
 # =============================================================================
@@ -59,4 +59,4 @@ sudo nvidia-ctk cdi list
 info "Docker CDI 信息："
 docker info 2>/dev/null | grep -iE 'runtime|cdi' || warn "未在 docker info 中找到 CDI 相关信息，可能需要重启 Docker daemon"
 
-info "===== 01_setup_cdi.sh 执行完成 ====="
+info "===== 02_setup_cdi.sh 执行完成 ====="

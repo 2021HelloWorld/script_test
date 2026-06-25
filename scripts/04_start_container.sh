@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 02_start_container.sh — 刷新 Xauthority 并启动 easim Docker 容器
+# 04_start_container.sh — 刷新 Xauthority 并启动 easim Docker 容器
 # 运行位置：宿主机
 # 运行时机：每次宿主机重启后，或退出桌面会话重新登入后
 # =============================================================================
@@ -75,7 +75,7 @@ if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
             fi
             info ""
             info "进入容器：docker exec -it $CONTAINER_NAME /bin/bash"
-            info "===== 02_start_container.sh 执行完成 ====="
+            info "===== 04_start_container.sh 执行完成 ====="
             exit 0
             ;;
         2)
@@ -110,6 +110,7 @@ docker run -itd \
     --shm-size="$SHM_SIZE" \
     -e ROS_DOMAIN_ID="$ROS_DOMAIN_ID" \
     -v "$EASIM_HOST_PATH:/easim" \
+    -v "$SCRIPT_DIR:/deploy_scripts" \
     "$IMAGE_NAME"
 
 # ---------- 验证 ----------
@@ -120,13 +121,13 @@ if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     info ""
     if [ "$FORCE_RECREATE" = true ]; then
         info "容器已重建，请重新初始化环境："
-        info "  bash /easim/scripts/03_init_docker_env.sh"
+        info "  bash /deploy_scripts/05_init_docker_env.sh"
     else
         info "如果是首次进入容器，请运行："
-        info "  bash /easim/scripts/03_init_docker_env.sh"
+        info "  bash /deploy_scripts/05_init_docker_env.sh"
     fi
 else
     error "容器启动失败，请检查上方输出"
 fi
 
-info "===== 02_start_container.sh 执行完成 ====="
+info "===== 04_start_container.sh 执行完成 ====="

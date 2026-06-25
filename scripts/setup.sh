@@ -186,4 +186,4 @@ EOF
 
 chmod +x "$CONFIG_FILE"
 info "config.sh 已更新 ✓"
-info "下一步：bash scripts/01_setup_cdi.sh"
+info "下一步：bash scripts/02_setup_cdi.sh"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 04_teleop_pico.sh — 一键启动 Pico 遥操（3 个 tmux pane）
+# 06_teleop_pico.sh — 一键启动 Pico 遥操（3 个 tmux pane）
 # 运行位置：宿主机
 # 运行时机：日常遥操使用
 #
@@ -152,7 +152,7 @@ command -v tmux &>/dev/null || error "未安装 tmux，请执行：sudo apt inst
 if [ "$RUN_ENV" = "docker" ]; then
     if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
         warn "容器 $CONTAINER_NAME 未运行，正在启动..."
-        bash "$SCRIPT_DIR/02_start_container.sh" || error "容器启动失败"
+        bash "$SCRIPT_DIR/04_start_container.sh" || error "容器启动失败"
     fi
 fi
 
@@ -171,6 +171,39 @@ fi
 HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1); exit}' || echo "<宿主机局域网IP>")
 
 # ==========================================================================
+# 生成遥操运行脚本（挂载为容器内 /deploy_scripts/.teleop_run.sh）
+# ==========================================================================
+TELEOP_SCRIPT="$SCRIPT_DIR/.teleop_run.sh"
+CLOUDXR_SCRIPT="$SCRIPT_DIR/.cloudxr_run.sh"
+if [ "$RUN_ENV" = "docker" ]; then
+    cat > "$TELEOP_SCRIPT" <<TELEOP_EOF
+#!/usr/bin/env bash
+source /root/.bashrc 2>/dev/null || true
+cd /easim
+source /root/.cloudxr/run/cloudxr.env
+export XDG_RUNTIME_DIR=\$HOME/.cloudxr/run
+export XR_RUNTIME_JSON=\$HOME/.cloudxr/openxr_cloudxr.json
+exec ./isaac_workspace/IsaacLab/isaaclab.sh -p source/easim/cli/run_unified.py \\
+  --task $TASK --mode teleop_record \\
+  --teleop_device $TELEOP_DEVICE --enable_pinocchio \\
+  --num_success_steps 20 --no-vr-teleop-debug \\
+  --dataset_file $DATASET_FILE
+TELEOP_EOF
+    chmod +x "$TELEOP_SCRIPT"
+    info "遥操脚本已生成：$TELEOP_SCRIPT ✓"
+
+    cat > "$CLOUDXR_SCRIPT" <<CLOUDXR_EOF
+#!/usr/bin/env bash
+source /root/.bashrc 2>/dev/null || true
+cd /easim
+exec ./isaac_workspace/IsaacLab/isaaclab.sh -p -m isaacteleop.cloudxr --accept-eula \\
+    --cloudxr-env-config \$HOME/.cloudxr/hand_tracking_ab.env
+CLOUDXR_EOF
+    chmod +x "$CLOUDXR_SCRIPT"
+    info "CloudXR 脚本已生成：$CLOUDXR_SCRIPT ✓"
+fi
+
+# ==========================================================================
 # 创建 tmux session
 # ==========================================================================
 info "启动场景：$SCENE_NAME | 设备：$TELEOP_DEVICE | 环境：$ENV_LABEL"
@@ -178,7 +211,16 @@ info "创建 tmux session: $SESSION ..."
 
 tmux new-session -d -s "$SESSION" -x 220 -y 50
 
-# pane 0：Isaac Teleop Web Server
+# 用 pane ID 精确控制布局，避免 split 后编号重排的问题
+# 初始只有 pane %0
+
+# 从 %0 水平分出右侧大窗口 %1（Terminal 3 遥操）
+PANE_TELEOP=$(tmux split-window -h -p 60 -t "$SESSION:0" -P -F "#{pane_id}")
+
+# 从 %0 垂直分出左下 %2（Terminal 2 CloudXR）
+PANE_CLOUDXR=$(tmux split-window -v -p 50 -t "$SESSION:0.0" -P -F "#{pane_id}")
+
+# %0（左上）：Isaac Teleop Web Server
 tmux send-keys -t "$SESSION:0.0" "
 echo -e '\033[0;36m[Terminal 1] Isaac Teleop Web Server\033[0m'
 cd '$ISAAC_TELEOP_PATH'
@@ -186,61 +228,58 @@ conda activate $TELEOP_CONDA_ENV
 HOST=0.0.0.0 npm run dev-server:https
 " ENTER
 
-# pane 1：CloudXR（命令根据运行环境区分）
-tmux split-window -v -t "$SESSION:0.0"
+# CloudXR（左下，PANE_CLOUDXR）
 if [ "$RUN_ENV" = "docker" ]; then
-    CLOUDXR_CMD="docker exec -it $CONTAINER_NAME bash -c \"
-    source /root/.bashrc && cd /easim
-    ./isaac_workspace/IsaacLab/isaaclab.sh -p -m isaacteleop.cloudxr --accept-eula \\
-        --cloudxr-env-config \\\$HOME/.cloudxr/hand_tracking_ab.env\""
-else
-    CLOUDXR_CMD="python -m isaacteleop.cloudxr --accept-eula \\
-  --cloudxr-env-config \"$CLOUDXR_ENV_CONFIG\""
-fi
-tmux send-keys -t "$SESSION:0.1" "
+    tmux send-keys -t "$PANE_CLOUDXR" "
 echo -e '\033[0;36m[Terminal 2] CloudXR 服务\033[0m'
 sleep 3
-$CLOUDXR_CMD
+docker exec -i $CONTAINER_NAME bash /deploy_scripts/.cloudxr_run.sh
 " ENTER
-
-# pane 2：遥操命令提示（命令根据运行环境区分）
-tmux split-window -h -t "$SESSION:0.0"
-if [ "$RUN_ENV" = "docker" ]; then
-    ENTER_HINT="# 2. 进入容器
-echo 'docker exec -it $CONTAINER_NAME bash'
-echo ''
-echo '# 3. 容器内运行遥操（复制下方命令）：'"
-    TELEOP_CMD="$PYTHON_CMD source/easim/cli/run_unified.py \\\\"
 else
-    ENTER_HINT="# 2. 运行遥操命令（复制下方）：
-echo ''"
-    TELEOP_CMD="$PYTHON_CMD source/easim/cli/run_unified.py \\\\"
+    tmux send-keys -t "$PANE_CLOUDXR" "
+echo -e '\033[0;36m[Terminal 2] CloudXR 服务\033[0m'
+sleep 3
+python -m isaacteleop.cloudxr --accept-eula \\
+  --cloudxr-env-config \"$CLOUDXR_ENV_CONFIG\"
+" ENTER
 fi
 
-tmux send-keys -t "$SESSION:0.2" "
-echo -e '\033[0;36m[Terminal 3] easim 遥操 — $ENV_LABEL\033[0m'
+# 遥操（右侧，PANE_TELEOP）
+if [ "$RUN_ENV" = "docker" ]; then
+    tmux send-keys -t "$PANE_TELEOP" "
+echo -e '\033[0;36m[Terminal 3] easim 遥操 — Docker 容器\033[0m'
 echo -e '\033[1;32m场景：$SCENE_NAME | 设备：$TELEOP_DEVICE\033[0m'
-echo ''
-echo -e '\033[1;33m[提示] 等待 Terminal 1、2 服务启动后，在此执行以下命令\033[0m'
-echo ''
-echo '# 1. 配置 CloudXR 环境变量'
-echo 'source \$HOME/.cloudxr/run/cloudxr.env'
-echo 'export XDG_RUNTIME_DIR=\$HOME/.cloudxr/run'
-echo 'export XR_RUNTIME_JSON=\$HOME/.cloudxr/openxr_cloudxr.json'
-echo ''
-$ENTER_HINT
-echo '---'
-echo '$TELEOP_CMD'
-echo '  --task $TASK --mode teleop_record \\'
-echo '  --teleop_device $TELEOP_DEVICE --enable_pinocchio \\'
-echo '  --num_success_steps 20 --no-vr-teleop-debug \\'
-echo '  --dataset_file $DATASET_FILE'
-echo '---'
+echo -e '\033[1;32m数据集：$DATASET_FILE\033[0m'
 echo ''
 echo -e '\033[1;32m[Pico 连接地址] https://$HOST_IP:8080\033[0m'
 echo '  easim 启动后：Isaac Sim GUI → AR → Start'
 echo '  Pico 浏览器输入上方地址 → Accept → Connect → Play'
+echo ''
+read -rp '等待 Terminal 1、2 服务就绪后，按 Enter 启动遥操... '
+docker exec -it $CONTAINER_NAME bash /deploy_scripts/.teleop_run.sh
 " ENTER
+else
+    tmux send-keys -t "$PANE_TELEOP" "
+echo -e '\033[0;36m[Terminal 3] easim 遥操 — 本机（conda）\033[0m'
+echo -e '\033[1;32m场景：$SCENE_NAME | 设备：$TELEOP_DEVICE\033[0m'
+echo -e '\033[1;32m数据集：$DATASET_FILE\033[0m'
+echo ''
+echo -e '\033[1;32m[Pico 连接地址] https://$HOST_IP:8080\033[0m'
+echo '  easim 启动后：Isaac Sim GUI → AR → Start'
+echo '  Pico 浏览器输入上方地址 → Accept → Connect → Play'
+echo ''
+read -rp '等待 Terminal 1、2 服务就绪后，按 Enter 启动遥操... '
+cd $EASIM_HOST_PATH
+source \$HOME/.cloudxr/run/cloudxr.env
+export XDG_RUNTIME_DIR=\$HOME/.cloudxr/run
+export XR_RUNTIME_JSON=\$HOME/.cloudxr/openxr_cloudxr.json
+$PYTHON_CMD source/easim/cli/run_unified.py \\
+  --task $TASK --mode teleop_record \\
+  --teleop_device $TELEOP_DEVICE --enable_pinocchio \\
+  --num_success_steps 20 --no-vr-teleop-debug \\
+  --dataset_file $DATASET_FILE
+" ENTER
+fi
 
 # ==========================================================================
 # 完成
