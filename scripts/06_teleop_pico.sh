@@ -195,7 +195,17 @@ TELEOP_EOF
     cat > "$CLOUDXR_SCRIPT" <<CLOUDXR_EOF
 #!/usr/bin/env bash
 source /root/.bashrc 2>/dev/null || true
+echo '[INFO] Starting CloudXR service in foreground; this pane should stay occupied.'
+# 清理残留的 CloudXR 进程，释放端口（兼容没有 fuser 的容器）
+pkill -f 'isaacteleop.cloudxr' 2>/dev/null || true
+sleep 2
+for port in 49100 48322; do
+    pid=\$(ss -tlnp 2>/dev/null | grep ":\${port} " | grep -oP 'pid=\K[0-9]+' | head -1)
+    [ -n "\$pid" ] && kill -9 "\$pid" 2>/dev/null || true
+done
 cd /easim
+echo '[INFO] Launching isaacteleop.cloudxr. If the last line is "Using python from:", wait 1-3 minutes, then start Terminal 3.'
+export PYTHONUNBUFFERED=1
 exec ./isaac_workspace/IsaacLab/isaaclab.sh -p -m isaacteleop.cloudxr --accept-eula \\
     --cloudxr-env-config \$HOME/.cloudxr/hand_tracking_ab.env
 CLOUDXR_EOF
@@ -211,17 +221,16 @@ info "创建 tmux session: $SESSION ..."
 
 tmux new-session -d -s "$SESSION" -x 220 -y 50
 
-# 用 pane ID 精确控制布局，避免 split 后编号重排的问题
-# 初始只有 pane %0
+# 布局：三列垂直分割
+# pane 0 → Terminal 1（Web Server）
+# pane 1 → Terminal 2（CloudXR）
+# pane 2 → Terminal 3（遥操）
+PANE_WEBSERVER="$SESSION:0.0"
+PANE_CLOUDXR=$(tmux split-window -h -p 67 -t "$SESSION:0.0" -P -F "#{pane_id}")
+PANE_TELEOP=$(tmux split-window -h -p 50 -t "$PANE_CLOUDXR" -P -F "#{pane_id}")
 
-# 从 %0 水平分出右侧大窗口 %1（Terminal 3 遥操）
-PANE_TELEOP=$(tmux split-window -h -p 60 -t "$SESSION:0" -P -F "#{pane_id}")
-
-# 从 %0 垂直分出左下 %2（Terminal 2 CloudXR）
-PANE_CLOUDXR=$(tmux split-window -v -p 50 -t "$SESSION:0.0" -P -F "#{pane_id}")
-
-# %0（左上）：Isaac Teleop Web Server
-tmux send-keys -t "$SESSION:0.0" "
+# Terminal 1（最左）：Isaac Teleop Web Server
+tmux send-keys -t "$PANE_WEBSERVER" "
 echo -e '\033[0;36m[Terminal 1] Isaac Teleop Web Server\033[0m'
 cd '$ISAAC_TELEOP_PATH'
 conda activate $TELEOP_CONDA_ENV
@@ -232,13 +241,16 @@ HOST=0.0.0.0 npm run dev-server:https
 if [ "$RUN_ENV" = "docker" ]; then
     tmux send-keys -t "$PANE_CLOUDXR" "
 echo -e '\033[0;36m[Terminal 2] CloudXR 服务\033[0m'
+echo 'CloudXR 是前台常驻服务；这个 pane 不会回到 shell。'
 sleep 3
-docker exec -i $CONTAINER_NAME bash /deploy_scripts/.cloudxr_run.sh
+docker exec -it $CONTAINER_NAME bash /deploy_scripts/.cloudxr_run.sh
 " ENTER
 else
     tmux send-keys -t "$PANE_CLOUDXR" "
 echo -e '\033[0;36m[Terminal 2] CloudXR 服务\033[0m'
+echo 'CloudXR 是前台常驻服务；这个 pane 不会回到 shell。'
 sleep 3
+PYTHONUNBUFFERED=1 \\
 python -m isaacteleop.cloudxr --accept-eula \\
   --cloudxr-env-config \"$CLOUDXR_ENV_CONFIG\"
 " ENTER
@@ -255,7 +267,7 @@ echo -e '\033[1;32m[Pico 连接地址] https://$HOST_IP:8080\033[0m'
 echo '  easim 启动后：Isaac Sim GUI → AR → Start'
 echo '  Pico 浏览器输入上方地址 → Accept → Connect → Play'
 echo ''
-read -rp '等待 Terminal 1、2 服务就绪后，按 Enter 启动遥操... '
+read -rp '等待 Terminal 1、2 服务就绪后，按 Enter 启动遥操... ' && \\
 docker exec -it $CONTAINER_NAME bash /deploy_scripts/.teleop_run.sh
 " ENTER
 else
@@ -268,11 +280,11 @@ echo -e '\033[1;32m[Pico 连接地址] https://$HOST_IP:8080\033[0m'
 echo '  easim 启动后：Isaac Sim GUI → AR → Start'
 echo '  Pico 浏览器输入上方地址 → Accept → Connect → Play'
 echo ''
-read -rp '等待 Terminal 1、2 服务就绪后，按 Enter 启动遥操... '
-cd $EASIM_HOST_PATH
-source \$HOME/.cloudxr/run/cloudxr.env
-export XDG_RUNTIME_DIR=\$HOME/.cloudxr/run
-export XR_RUNTIME_JSON=\$HOME/.cloudxr/openxr_cloudxr.json
+read -rp '等待 Terminal 1、2 服务就绪后，按 Enter 启动遥操... ' && \\
+cd $EASIM_HOST_PATH && \\
+source \$HOME/.cloudxr/run/cloudxr.env && \\
+export XDG_RUNTIME_DIR=\$HOME/.cloudxr/run && \\
+export XR_RUNTIME_JSON=\$HOME/.cloudxr/openxr_cloudxr.json && \\
 $PYTHON_CMD source/easim/cli/run_unified.py \\
   --task $TASK --mode teleop_record \\
   --teleop_device $TELEOP_DEVICE --enable_pinocchio \\
