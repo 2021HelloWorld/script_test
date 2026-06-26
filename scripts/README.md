@@ -76,22 +76,16 @@ scripts/
 # 1. 运行配置向导
 bash scripts/setup.sh
 
-# 2. 安装 CUDA 12.8（需已装驱动 580.159.03）
-bash scripts/00_install_cuda.sh
-
-# 3. 安装 Docker 29.1.3 + tmux
-bash scripts/01_install_host_deps.sh
-
-# 4. 安装 nvidia-container-toolkit，生成 CDI 规格
+# 2. 安装 nvidia-container-toolkit，生成 CDI 规格
 bash scripts/02_setup_cdi.sh
 
-# 5. 构建 Docker 镜像（自动检查/生成 Dockerfile）
+# 3. 构建 Docker 镜像（自动检查/生成 Dockerfile）
 bash scripts/03_build_image.sh
 
-# 6. 启动容器
+# 4. 启动容器
 bash scripts/04_start_container.sh
 
-# 7. 进入容器，初始化环境（只需执行一次）
+# 5. 进入容器，初始化环境（每个新容器只需执行一次）
 docker exec -it kxq_easim_container bash
 bash /deploy_scripts/05_init_docker_env.sh
 ```
