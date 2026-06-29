@@ -175,6 +175,7 @@ HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="sr
 # ==========================================================================
 TELEOP_SCRIPT="$SCRIPT_DIR/.teleop_run.sh"
 CLOUDXR_SCRIPT="$SCRIPT_DIR/.cloudxr_run.sh"
+TELEOP_PANE_SCRIPT="$SCRIPT_DIR/.teleop_pane_run.sh"
 if [ "$RUN_ENV" = "docker" ]; then
     cat > "$TELEOP_SCRIPT" <<TELEOP_EOF
 #!/usr/bin/env bash
@@ -212,6 +213,57 @@ CLOUDXR_EOF
     chmod +x "$CLOUDXR_SCRIPT"
     info "CloudXR 脚本已生成：$CLOUDXR_SCRIPT ✓"
 fi
+
+cat > "$TELEOP_PANE_SCRIPT" <<TELEOP_PANE_EOF
+#!/usr/bin/env bash
+set +e
+
+echo -e '\\033[0;36m[Terminal 3] easim 遥操 — $ENV_LABEL\\033[0m'
+echo -e '\\033[1;32m场景：$SCENE_NAME | 设备：$TELEOP_DEVICE\\033[0m'
+echo -e '\\033[1;32m数据集：$DATASET_FILE\\033[0m'
+echo ''
+echo -e '\\033[1;32m[Pico 连接地址] https://$HOST_IP:8080\\033[0m'
+echo '  easim 启动后：Isaac Sim GUI → AR → Start'
+echo '  Pico 浏览器输入上方地址 → Accept → Connect → Play'
+echo ''
+
+read -rp '等待 Terminal 1、2 服务就绪后，按 Enter 启动遥操... '
+if [ \$? -ne 0 ]; then
+    TELEOP_STATUS=130
+else
+TELEOP_PANE_EOF
+
+if [ "$RUN_ENV" = "docker" ]; then
+    cat >> "$TELEOP_PANE_SCRIPT" <<TELEOP_PANE_EOF
+    docker exec -it $CONTAINER_NAME bash /deploy_scripts/.teleop_run.sh
+    TELEOP_STATUS=\$?
+TELEOP_PANE_EOF
+else
+    cat >> "$TELEOP_PANE_SCRIPT" <<TELEOP_PANE_EOF
+    cd "$EASIM_HOST_PATH" && \\
+    source "\$HOME/.cloudxr/run/cloudxr.env" && \\
+    export XDG_RUNTIME_DIR="\$HOME/.cloudxr/run" && \\
+    export XR_RUNTIME_JSON="\$HOME/.cloudxr/openxr_cloudxr.json" && \\
+    $PYTHON_CMD source/easim/cli/run_unified.py \\
+      --task $TASK --mode teleop_record \\
+      --teleop_device $TELEOP_DEVICE --enable_pinocchio \\
+      --num_success_steps 20 --no-vr-teleop-debug \\
+      --dataset_file $DATASET_FILE
+    TELEOP_STATUS=\$?
+TELEOP_PANE_EOF
+fi
+
+cat >> "$TELEOP_PANE_SCRIPT" <<TELEOP_PANE_EOF
+fi
+
+echo ''
+echo '[INFO] 遥操进程已退出，3 秒后关闭 tmux session 并返回入口菜单...'
+sleep 3
+tmux kill-session -t "$SESSION" 2>/dev/null
+exit \$TELEOP_STATUS
+TELEOP_PANE_EOF
+chmod +x "$TELEOP_PANE_SCRIPT"
+info "遥操 pane 脚本已生成：$TELEOP_PANE_SCRIPT ✓"
 
 # ==========================================================================
 # 创建 tmux session
@@ -257,41 +309,7 @@ python -m isaacteleop.cloudxr --accept-eula \\
 fi
 
 # 遥操（右侧，PANE_TELEOP）
-if [ "$RUN_ENV" = "docker" ]; then
-    tmux send-keys -t "$PANE_TELEOP" "
-echo -e '\033[0;36m[Terminal 3] easim 遥操 — Docker 容器\033[0m'
-echo -e '\033[1;32m场景：$SCENE_NAME | 设备：$TELEOP_DEVICE\033[0m'
-echo -e '\033[1;32m数据集：$DATASET_FILE\033[0m'
-echo ''
-echo -e '\033[1;32m[Pico 连接地址] https://$HOST_IP:8080\033[0m'
-echo '  easim 启动后：Isaac Sim GUI → AR → Start'
-echo '  Pico 浏览器输入上方地址 → Accept → Connect → Play'
-echo ''
-read -rp '等待 Terminal 1、2 服务就绪后，按 Enter 启动遥操... ' && \\
-docker exec -it $CONTAINER_NAME bash /deploy_scripts/.teleop_run.sh
-" ENTER
-else
-    tmux send-keys -t "$PANE_TELEOP" "
-echo -e '\033[0;36m[Terminal 3] easim 遥操 — 本机（conda）\033[0m'
-echo -e '\033[1;32m场景：$SCENE_NAME | 设备：$TELEOP_DEVICE\033[0m'
-echo -e '\033[1;32m数据集：$DATASET_FILE\033[0m'
-echo ''
-echo -e '\033[1;32m[Pico 连接地址] https://$HOST_IP:8080\033[0m'
-echo '  easim 启动后：Isaac Sim GUI → AR → Start'
-echo '  Pico 浏览器输入上方地址 → Accept → Connect → Play'
-echo ''
-read -rp '等待 Terminal 1、2 服务就绪后，按 Enter 启动遥操... ' && \\
-cd $EASIM_HOST_PATH && \\
-source \$HOME/.cloudxr/run/cloudxr.env && \\
-export XDG_RUNTIME_DIR=\$HOME/.cloudxr/run && \\
-export XR_RUNTIME_JSON=\$HOME/.cloudxr/openxr_cloudxr.json && \\
-$PYTHON_CMD source/easim/cli/run_unified.py \\
-  --task $TASK --mode teleop_record \\
-  --teleop_device $TELEOP_DEVICE --enable_pinocchio \\
-  --num_success_steps 20 --no-vr-teleop-debug \\
-  --dataset_file $DATASET_FILE
-" ENTER
-fi
+tmux send-keys -t "$PANE_TELEOP" "bash '$TELEOP_PANE_SCRIPT'" ENTER
 
 # ==========================================================================
 # 完成
@@ -299,9 +317,10 @@ fi
 info ""
 info "===== tmux session '$SESSION' 已创建 ====="
 info "  切换 pane  : Ctrl+B 再按方向键"
-info "  退出保留   : Ctrl+B D"
+info "  临时脱离   : Ctrl+B D（后台保留）"
 info "  重新附加   : tmux attach -t $SESSION"
-info "  关闭 session: tmux kill-session -t $SESSION"
+info "  遥操结束   : 关闭 Isaac Sim 后自动关闭 session 并返回入口菜单"
+info "  手动关闭   : tmux kill-session -t $SESSION"
 info ""
 info "Pico 浏览器连接地址：https://$HOST_IP:8080"
 info ""

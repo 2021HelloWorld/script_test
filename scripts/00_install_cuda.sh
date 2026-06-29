@@ -21,6 +21,41 @@ CUDA_URL="https://developer.download.nvidia.com/compute/cuda/12.8.0/local_instal
 CUDA_PIN_URL="https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin"
 CUDA_KEYRING_SRC="/var/cuda-repo-ubuntu2204-12-8-local/cuda-485B8195-keyring.gpg"
 CUDA_INSTALL_PATH="/usr/local/cuda-${CUDA_VERSION}"
+CUDA_CACHE_DIR="${EASIM_CUDA_CACHE_DIR:-$HOME/.cache/easim}"
+
+ensure_valid_cuda_deb() {
+    local deb_path="$1"
+
+    [ -f "$deb_path" ] || return 1
+    if dpkg-deb --fsys-tarfile "$deb_path" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    warn "检测到 CUDA 安装包缓存损坏：$deb_path"
+    warn "将删除损坏缓存并重新下载"
+    rm -f "$deb_path"
+    return 1
+}
+
+setup_env() {
+    local BASHRC="$HOME/.bashrc"
+    local PATH_LINE="export PATH=${CUDA_INSTALL_PATH}/bin:\$PATH"
+    local LD_LINE="export LD_LIBRARY_PATH=${CUDA_INSTALL_PATH}/lib64:\$LD_LIBRARY_PATH"
+
+    if grep -qF "${CUDA_INSTALL_PATH}/bin" "$BASHRC"; then
+        info "PATH 已包含 CUDA 路径，跳过写入"
+    else
+        echo "$PATH_LINE" >> "$BASHRC"
+        info "已写入 PATH → ${BASHRC}"
+    fi
+
+    if grep -qF "${CUDA_INSTALL_PATH}/lib64" "$BASHRC"; then
+        info "LD_LIBRARY_PATH 已包含 CUDA 路径，跳过写入"
+    else
+        echo "$LD_LINE" >> "$BASHRC"
+        info "已写入 LD_LIBRARY_PATH → ${BASHRC}"
+    fi
+}
 
 # ---------- 前置检查：驱动 ----------
 info "检查 NVIDIA 驱动..."
@@ -40,7 +75,7 @@ if [ -f "${CUDA_INSTALL_PATH}/bin/nvcc" ]; then
     INSTALLED_VER=$("${CUDA_INSTALL_PATH}/bin/nvcc" --version | grep -oP 'release \K[\d.]+')
     info "CUDA ${INSTALLED_VER} 已安装于 ${CUDA_INSTALL_PATH}，跳过安装"
     # 仍需确保环境变量已写入 .bashrc
-    _setup_env
+    setup_env
     exit 0
 fi
 
@@ -56,15 +91,16 @@ if [ -n "$EXISTING" ]; then
     [[ "$CONFIRM" =~ ^[Yy]$ ]] || { info "已取消"; exit 0; }
 fi
 
-# ---------- 下载 .deb 包（带本地缓存检查）----------
-TMPDIR="${TMPDIR:-/tmp}"
-DEB_PATH="${TMPDIR}/${CUDA_DEB}"
+# ---------- 下载 .deb 包（带本地缓存校验）----------
+mkdir -p "$CUDA_CACHE_DIR"
+DEB_PATH="${CUDA_CACHE_DIR}/${CUDA_DEB}"
 
-if [ -f "$DEB_PATH" ]; then
-    info "检测到本地缓存：${DEB_PATH}，跳过下载"
+if ensure_valid_cuda_deb "$DEB_PATH"; then
+    info "检测到有效本地缓存：${DEB_PATH}，跳过下载"
 else
     info "下载 CUDA 12.8 安装包（约 3 GB，请耐心等待）..."
     wget -c -O "$DEB_PATH" "$CUDA_URL" || error "下载失败，请检查网络或手动下载到 ${DEB_PATH}"
+    ensure_valid_cuda_deb "$DEB_PATH" || error "下载后的安装包校验失败，请删除后重试：${DEB_PATH}"
     info "下载完成 ✓"
 fi
 
@@ -93,27 +129,7 @@ sudo apt install -y "${CUDA_PKG}"
 info "${CUDA_PKG} 安装完成 ✓"
 
 # ---------- 配置环境变量 ----------
-_setup_env() {
-    local BASHRC="$HOME/.bashrc"
-    local PATH_LINE="export PATH=${CUDA_INSTALL_PATH}/bin:\$PATH"
-    local LD_LINE="export LD_LIBRARY_PATH=${CUDA_INSTALL_PATH}/lib64:\$LD_LIBRARY_PATH"
-
-    if grep -qF "${CUDA_INSTALL_PATH}/bin" "$BASHRC"; then
-        info "PATH 已包含 CUDA 路径，跳过写入"
-    else
-        echo "$PATH_LINE" >> "$BASHRC"
-        info "已写入 PATH → ${BASHRC}"
-    fi
-
-    if grep -qF "${CUDA_INSTALL_PATH}/lib64" "$BASHRC"; then
-        info "LD_LIBRARY_PATH 已包含 CUDA 路径，跳过写入"
-    else
-        echo "$LD_LINE" >> "$BASHRC"
-        info "已写入 LD_LIBRARY_PATH → ${BASHRC}"
-    fi
-}
-
-_setup_env
+setup_env
 
 # ---------- 验证 ----------
 info "验证安装..."

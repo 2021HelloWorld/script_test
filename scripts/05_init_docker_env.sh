@@ -98,8 +98,14 @@ info "[8/8] 安装遥操 pink IK 依赖及回放环境修复包..."
 "$ISAACSIM_PYTHON" -m pip install "scipy==1.15.3" "warp-lang==1.12.1"
 "$ISAACSIM_PYTHON" -m pip install "onnxruntime==1.26.0"
 
-# ---------- 激活环境变量 ----------
-source /root/.bashrc 2>/dev/null || true
+# ---------- 检查 .bashrc 可加载 ----------
+# 这里不能在 set -u 下直接 source /root/.bashrc；如果 .bashrc 里引用了未定义变量，
+# bash 会直接退出当前脚本，导致前面安装都成功但初始化被误判失败。
+if [ -f /root/.bashrc ]; then
+    if ! ( set +u; source /root/.bashrc ) >/dev/null 2>&1; then
+        warn "/root/.bashrc 加载检查未通过，已忽略；重新进入容器后请手动确认环境变量"
+    fi
+fi
 
 info ""
 info "===== 初始化完成 ====="
