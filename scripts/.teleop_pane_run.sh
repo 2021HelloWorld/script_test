@@ -3,7 +3,7 @@ set +e
 
 echo -e '\033[0;36m[Terminal 3] easim 遥操 — Docker 容器\033[0m'
 echo -e '\033[1;32m场景：抓纸团果皮 | 设备：pico_handtracking\033[0m'
-echo -e '\033[1;32m数据集：datasets/imit_learning/pick_paper_balls_skill_260629_1629.hdf5\033[0m'
+echo -e '\033[1;32m数据集：datasets/imit_learning/pick_paper_balls_skill_260629_1654.hdf5\033[0m'
 echo ''
 echo -e '\033[1;32m[Pico 连接地址] https://10.169.21.19:8080\033[0m'
 echo '  easim 启动后：Isaac Sim GUI → AR → Start'
