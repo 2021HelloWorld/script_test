@@ -250,7 +250,7 @@ bash script_new/03_build_image.sh
 
 1. 检查 easim 路径
 2. 配置 X11 访问权限
-3. 复制 Xauthority cookie 到 `/tmp/.docker.xauth`
+3. 自动创建/修复 `/tmp/.docker.xauth` 权限，并复制 Xauthority cookie 到 `/tmp/.docker.xauth/Xauthority`
 4. 启动或复用 Docker 容器
 5. 挂载 easim 代码和部署脚本目录
 
@@ -328,6 +328,16 @@ id -u
 ```bash
 bash script_new/easim.sh setup
 ```
+
+### `/tmp/.docker.xauth` 权限异常
+
+启动/恢复容器时脚本会自动创建并修复 `/tmp/.docker.xauth` 目录权限，然后刷新 `/tmp/.docker.xauth/Xauthority`。如果该目录曾由 `root` 或其他用户创建，重新运行：
+
+```bash
+bash script_new/easim.sh container
+```
+
+选择 `2) 启动/恢复容器（刷新图形授权）` 即可自动修复。
 
 ### Docker daemon 当前用户不可访问
 

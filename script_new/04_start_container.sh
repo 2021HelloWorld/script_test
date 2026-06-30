@@ -33,8 +33,38 @@ if [ ! -f "$GDM_XAUTH" ]; then
 如果你的 UID 不是 1001，请修改 config.sh 中的 GDM_XAUTH 路径
 （使用 'id -u' 查看当前 UID）"
 fi
-cp "$GDM_XAUTH" "$DOCKER_XAUTH"
-chmod 644 "$DOCKER_XAUTH"
+
+if [ -d "$DOCKER_XAUTH" ] || [ "$(basename "$DOCKER_XAUTH")" != "Xauthority" ]; then
+    DOCKER_XAUTH_DIR="$DOCKER_XAUTH"
+    DOCKER_XAUTH_FILE="$DOCKER_XAUTH_DIR/Xauthority"
+else
+    DOCKER_XAUTH_FILE="$DOCKER_XAUTH"
+    DOCKER_XAUTH_DIR="$(dirname "$DOCKER_XAUTH_FILE")"
+fi
+
+if [ -e "$DOCKER_XAUTH_DIR" ] && [ ! -d "$DOCKER_XAUTH_DIR" ]; then
+    error "Xauthority 缓存路径不是目录：$DOCKER_XAUTH_DIR"
+fi
+
+if ! mkdir -p "$DOCKER_XAUTH_DIR" 2>/dev/null; then
+    warn "无法创建 Xauthority 缓存目录，尝试使用 sudo 修复：$DOCKER_XAUTH_DIR"
+    sudo mkdir -p "$DOCKER_XAUTH_DIR" || error "创建 Xauthority 缓存目录失败：$DOCKER_XAUTH_DIR"
+fi
+
+if [ ! -w "$DOCKER_XAUTH_DIR" ] || [ ! -x "$DOCKER_XAUTH_DIR" ]; then
+    warn "Xauthority 缓存目录不可写，尝试修复权限：$DOCKER_XAUTH_DIR"
+    sudo chown "$USER:$(id -gn)" "$DOCKER_XAUTH_DIR" || error "修复 Xauthority 缓存目录属主失败：$DOCKER_XAUTH_DIR"
+    chmod 700 "$DOCKER_XAUTH_DIR" || error "修复 Xauthority 缓存目录权限失败：$DOCKER_XAUTH_DIR"
+fi
+
+if [ -e "$DOCKER_XAUTH_FILE" ] && [ ! -w "$DOCKER_XAUTH_FILE" ]; then
+    warn "Xauthority 缓存文件不可写，尝试修复权限：$DOCKER_XAUTH_FILE"
+    sudo chown "$USER:$(id -gn)" "$DOCKER_XAUTH_FILE" || error "修复 Xauthority 缓存文件属主失败：$DOCKER_XAUTH_FILE"
+fi
+
+cp "$GDM_XAUTH" "$DOCKER_XAUTH_FILE"
+chmod 644 "$DOCKER_XAUTH_FILE"
+DOCKER_XAUTH="$DOCKER_XAUTH_FILE"
 info "Xauthority 已复制到 $DOCKER_XAUTH ✓"
 
 # ---------- 检查镜像是否存在 ----------

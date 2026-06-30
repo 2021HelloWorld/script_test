@@ -169,7 +169,7 @@ ROS_DOMAIN_ID=${NEW_ROS_DOMAIN_ID}
 
 # ---------- X11 / 显示配置 ----------
 GDM_XAUTH="${NEW_GDM_XAUTH}"
-DOCKER_XAUTH="/tmp/.docker.xauth"
+DOCKER_XAUTH="/tmp/.docker.xauth/Xauthority"
 
 # ---------- CloudXR 配置 ----------
 CLOUDXR_ENV_CONFIG="\$HOME/.cloudxr/hand_tracking_ab.env"
