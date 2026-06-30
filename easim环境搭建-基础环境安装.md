@@ -117,9 +117,9 @@
 
         ```Bash
         # 1. 基础镜像
-        # 方案 B：与宿主机驱动 580 官方支持对齐，使用 CUDA 13.x 基础镜像，再安装 ROS2 Humble
+        # 方案 B：与宿主机驱动 580 官方支持对齐，使用 CUDA 12.8 基础镜像，再安装 ROS2 Humble
         # 若拉取 docker.io 超时，可先在其他网络拉取镜像再 build，或使用：--build-arg BASE_IMAGE=镜像地址
-        ARG BASE_IMAGE=nvidia/cuda:13.0.0-devel-ubuntu22.04
+        ARG BASE_IMAGE=nvidia/cuda:12.8.0-devel-ubuntu22.04
         FROM ${BASE_IMAGE}
         
         # 设置环境变量，避免交互式弹窗
@@ -135,7 +135,7 @@
             sed -i "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}/ubuntu|g" /etc/apt/sources.list && \
             printf 'Acquire::ForceIPv4 "true";\nAcquire::Retries "5";\n' > /etc/apt/apt.conf.d/99easim-apt
         
-        # 1.1 安装 ROS2 Humble（在 CUDA 13.0 的 Ubuntu 22.04 上）
+        # 1.1 安装 ROS2 Humble（在 CUDA 12.8 的 Ubuntu 22.04 上）
         RUN apt-get update && apt-get install -y \
             locales \
             curl \
@@ -217,10 +217,10 @@
             libcurl4-openssl-dev \
             && rm -rf /var/lib/apt/lists/*
         
-        # 10. 深度学习环境与工具（方案 B：CUDA 13.x 对齐）
-        # 说明：不强行 pin 具体 torch 版本，避免 cu130 index 中无该版本导致构建失败；
+        # 10. 深度学习环境与工具（方案 B：CUDA 12.8 对齐）
+        # 说明：不强行 pin 具体 torch 版本，避免 cu128 index 中无该版本导致构建失败；
         # 如需固定版本，可在 build 时传入 --build-arg TORCH_VERSION=...
-        ARG PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu130
+        ARG PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu128
         ARG TORCH_VERSION=
         RUN if [ -n "${TORCH_VERSION}" ]; then \
               pip install --no-cache-dir --force-reinstall \
