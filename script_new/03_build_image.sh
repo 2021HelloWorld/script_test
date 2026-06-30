@@ -17,6 +17,10 @@ warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
 DOCKERFILE_PATH="${EASIM_HOST_PATH}/${DOCKERFILE}"
+DEFAULT_BASE_IMAGE="nvidia/cuda:12.8.0-devel-ubuntu22.04"
+DEFAULT_PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cu128"
+LEGACY_BASE_IMAGE="nvidia/cuda:13.0.0-devel-ubuntu22.04"
+LEGACY_PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cu130"
 
 # ---------- 检查 easim 路径 ----------
 if [ ! -d "$EASIM_HOST_PATH" ]; then
@@ -26,12 +30,20 @@ fi
 # ---------- 检查 / 自动生成 Dockerfile ----------
 if [ -f "$DOCKERFILE_PATH" ]; then
     info "Dockerfile 已存在：$DOCKERFILE_PATH"
+    if grep -q "$LEGACY_BASE_IMAGE" "$DOCKERFILE_PATH" || grep -q "$LEGACY_PYTORCH_INDEX_URL" "$DOCKERFILE_PATH"; then
+        warn "检测到旧 CUDA/PyTorch 默认源，自动更新为 CUDA 12.8 / cu128..."
+        sed -i \
+            -e "s|ARG BASE_IMAGE=${LEGACY_BASE_IMAGE}|ARG BASE_IMAGE=${DEFAULT_BASE_IMAGE}|g" \
+            -e "s|ARG PYTORCH_INDEX_URL=${LEGACY_PYTORCH_INDEX_URL}|ARG PYTORCH_INDEX_URL=${DEFAULT_PYTORCH_INDEX_URL}|g" \
+            "$DOCKERFILE_PATH"
+        info "Dockerfile 默认镜像/源已更新 ✓"
+    fi
 else
     warn "未找到 $DOCKERFILE_PATH，自动生成..."
     mkdir -p "$(dirname "$DOCKERFILE_PATH")"
     cat > "$DOCKERFILE_PATH" << 'DOCKERFILE_CONTENT'
 # 1. 基础镜像
-ARG BASE_IMAGE=nvidia/cuda:13.0.0-devel-ubuntu22.04
+ARG BASE_IMAGE=nvidia/cuda:12.8.0-devel-ubuntu22.04
 FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -90,7 +102,7 @@ RUN apt-get update && apt-get install -y \
     libopencv-dev ros-humble-rosbridge-server libcurlpp-dev libcurl4-openssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-ARG PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu130
+ARG PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu128
 ARG TORCH_VERSION=
 RUN if [ -n "${TORCH_VERSION}" ]; then \
       pip install --no-cache-dir --force-reinstall \
