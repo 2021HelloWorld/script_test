@@ -103,6 +103,7 @@ docker run -itd \
     -e NVIDIA_VISIBLE_DEVICES=all \
     -e DISPLAY="$DISPLAY" \
     -e XAUTHORITY="$DOCKER_XAUTH" \
+    -e OMNI_KIT_ALLOW_ROOT=1 \
     -e QT_X11_NO_MITSHM=1 \
     -v /tmp/.X11-unix:/tmp/.X11-unix \
     -v "$DOCKER_XAUTH:$DOCKER_XAUTH" \

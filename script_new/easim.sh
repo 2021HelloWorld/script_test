@@ -41,8 +41,7 @@ usage() {
   check       环境预检，只报告状态，不安装/不修改环境
   setup       首次配置或修改 config.sh
   init        初始化容器内 easim/Isaac Lab 环境
-  cuda        安装 CUDA Toolkit
-  host-deps   安装 Docker 等宿主机依赖
+  verify      Isaac Sim / Isaac Lab 基础环境验证
   cdi         配置 NVIDIA CDI
   build       构建 Docker 镜像
 
@@ -56,8 +55,7 @@ pause() {
 }
 
 run_menu_action() {
-    local action="$1"
-    if ( "$action" ); then
+    if ( "$@" ); then
         echo ""
         info "操作已结束，返回主菜单。"
     else
@@ -130,6 +128,29 @@ check_hint() {
     echo "       $*"
 }
 
+cuda_toolkit_expected_ready() {
+    local nvcc_path cuda_version
+
+    if command -v nvcc &>/dev/null; then
+        nvcc_path="$(command -v nvcc)"
+    elif [ -x "$EXPECTED_CUDA_NVCC" ]; then
+        nvcc_path="$EXPECTED_CUDA_NVCC"
+    else
+        return 1
+    fi
+
+    cuda_version="$("$nvcc_path" --version 2>/dev/null | sed -nE 's/.*release ([0-9]+\.[0-9]+).*/\1/p' | head -1 || true)"
+    [ "$cuda_version" = "$EXPECTED_CUDA_VERSION" ]
+}
+
+docker_expected_ready() {
+    local docker_version
+
+    command -v docker &>/dev/null || return 1
+    docker_version="$(docker --version 2>/dev/null | sed -nE 's/^Docker version ([0-9]+(\.[0-9]+){0,2}).*/\1/p' || true)"
+    [ "$docker_version" = "$EXPECTED_DOCKER_VERSION" ]
+}
+
 check_nvidia_driver() {
     local driver_output driver_version gpu_count gpu_output
 
@@ -175,11 +196,11 @@ check_cuda_toolkit() {
             fi
 
             check_fail "CUDA Toolkit：标准路径存在 nvcc，但版本为 ${cuda_version:-无法解析}，期望 ${EXPECTED_CUDA_VERSION}"
-            check_hint "建议检查 ${EXPECTED_CUDA_NVCC}，必要时执行：bash script_new/easim.sh cuda"
+            check_hint "首次部署会自动尝试安装指定 CUDA 版本。"
             return
         else
             check_fail "CUDA Toolkit：未找到 nvcc"
-            check_hint "建议执行：bash script_new/easim.sh cuda"
+            check_hint "首次部署会自动尝试安装 CUDA。"
         fi
         return
     fi
@@ -189,7 +210,7 @@ check_cuda_toolkit() {
         check_pass "CUDA Toolkit：${cuda_version}"
     elif [ -n "$cuda_version" ]; then
         check_fail "CUDA Toolkit：当前 ${cuda_version}，期望 ${EXPECTED_CUDA_VERSION}"
-        check_hint "建议执行：bash script_new/easim.sh cuda"
+        check_hint "首次部署会自动尝试安装指定 CUDA 版本。"
     else
         check_fail "CUDA Toolkit：无法解析 nvcc 版本"
         check_hint "请执行 nvcc --version 检查 CUDA 安装。"
@@ -206,7 +227,7 @@ check_docker_env() {
 
     if ! command -v docker &>/dev/null; then
         check_fail "Docker：未找到 docker 命令"
-        check_hint "建议执行：bash script_new/easim.sh host-deps"
+        check_hint "首次部署会自动尝试安装 Docker。"
         return
     fi
 
@@ -217,12 +238,12 @@ check_docker_env() {
         check_hint "请执行 docker --version 检查 Docker 安装。"
     elif [ "$docker_major" -lt "$MIN_DOCKER_MAJOR" ]; then
         check_fail "Docker：当前 ${docker_version}，要求 >= ${MIN_DOCKER_MAJOR}.0"
-        check_hint "CDI 依赖 Docker >= ${MIN_DOCKER_MAJOR}.0，建议执行：bash script_new/easim.sh host-deps"
+        check_hint "CDI 依赖 Docker >= ${MIN_DOCKER_MAJOR}.0，首次部署会自动尝试安装指定 Docker 版本。"
     elif [ "$docker_version" = "$EXPECTED_DOCKER_VERSION" ]; then
         check_pass "Docker：${docker_version}"
     else
-        check_warn "Docker：当前 ${docker_version}，推荐 ${EXPECTED_DOCKER_VERSION}"
-        check_hint "当前版本满足 CDI 最低要求，但与文档推荐版本不一致。"
+        check_fail "Docker：当前 ${docker_version}，期望 ${EXPECTED_DOCKER_VERSION}"
+        check_hint "首次部署会自动尝试安装指定 Docker 版本。"
     fi
 
     if docker info &>/dev/null; then
@@ -290,6 +311,39 @@ check_command() {
     check_env
 }
 
+deploy_precheck_and_install_deps() {
+    CHECK_FAILS=0
+    CHECK_WARNINGS=0
+
+    echo -e "${CYAN}首次部署环境预检（CUDA/Docker 缺失或版本不符时自动安装）${NC}"
+    echo ""
+
+    check_config_paths
+    check_nvidia_driver
+
+    if [ "$CHECK_FAILS" -gt 0 ]; then
+        echo ""
+        error "前置条件未通过。请先安装 NVIDIA 驱动 ${EXPECTED_NVIDIA_DRIVER} 并确认配置路径正确。"
+    fi
+
+    if cuda_toolkit_expected_ready; then
+        check_pass "CUDA Toolkit：${EXPECTED_CUDA_VERSION}"
+    else
+        warn "未检测到符合要求的 CUDA ${EXPECTED_CUDA_VERSION}，开始自动安装指定版本。"
+        run_script "00_install_cuda.sh" || return 1
+    fi
+
+    if docker_expected_ready; then
+        check_pass "Docker：${EXPECTED_DOCKER_VERSION}"
+    else
+        warn "未检测到符合要求的 Docker ${EXPECTED_DOCKER_VERSION}，开始自动安装指定版本。"
+        run_script "01_install_host_deps.sh" || return 1
+    fi
+
+    echo ""
+    check_env
+}
+
 first_deploy() {
     print_header
     ensure_config_or_setup
@@ -299,7 +353,7 @@ first_deploy() {
     fi
 
     echo ""
-    if ! check_env; then
+    if ! deploy_precheck_and_install_deps; then
         error "环境预检未通过，已停止首次部署。"
     fi
 
@@ -349,6 +403,33 @@ init_container_env() {
         docker exec -it "$CONTAINER_NAME" bash /deploy_scripts/05_init_docker_env.sh
     else
         docker exec -i "$CONTAINER_NAME" bash /deploy_scripts/05_init_docker_env.sh
+    fi
+}
+
+verify_isaac_env() {
+    load_config
+
+    if ! command -v docker &>/dev/null; then
+        error "未找到 docker 命令，请先安装 Docker。"
+    fi
+
+    if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+        warn "容器 $CONTAINER_NAME 未运行。"
+        if ask_yes_no "是否先启动容器？" "yes"; then
+            run_script "04_start_container.sh"
+        else
+            error "容器未运行，无法进行 Isaac Sim / Isaac Lab 环境验证。"
+        fi
+    fi
+
+    local verify_cmd
+    verify_cmd='export OMNI_KIT_ALLOW_ROOT=1; cd /easim && if [ ! -x ./isaac_workspace/IsaacLab/isaaclab.sh ]; then echo "[ERROR] 找不到或不可执行：/easim/isaac_workspace/IsaacLab/isaaclab.sh" >&2; exit 1; fi; ./isaac_workspace/IsaacLab/isaaclab.sh -s'
+
+    info "在容器 $CONTAINER_NAME 内进行 Isaac Sim / Isaac Lab 基础环境验证..."
+    if [ -t 0 ] && [ -t 1 ]; then
+        docker exec -it "$CONTAINER_NAME" bash -lc "$verify_cmd"
+    else
+        docker exec -i "$CONTAINER_NAME" bash -lc "$verify_cmd"
     fi
 }
 
@@ -417,15 +498,17 @@ main_menu() {
         echo "请选择功能："
         echo "  1) 首次部署"
         echo "  2) 重启/恢复环境"
-        echo "  3) 状态查看"
+        echo "  3) Isaac Sim / Isaac Lab 环境验证"
+        echo "  4) 状态查看"
         echo "  0) 退出"
         echo ""
-        read -rp "输入序号 [0-3]: " choice
+        read -rp "输入序号 [0-4]: " choice
 
         case "$choice" in
             1) run_menu_action first_deploy ;;
             2) run_menu_action start_container ;;
-            3) run_menu_action status_report ;;
+            3) run_menu_action verify_isaac_env ;;
+            4) run_menu_action status_report ;;
             0) exit 0 ;;
             *) warn "无效输入：$choice"; pause ;;
         esac
@@ -441,9 +524,8 @@ case "$command" in
     deploy) first_deploy ;;
     restart|start|container) start_container ;;
     init) init_container_env ;;
+    verify|isaac|sim) verify_isaac_env ;;
     status) status_report ;;
-    cuda) run_script "00_install_cuda.sh" ;;
-    host-deps|deps|docker) run_script "01_install_host_deps.sh" ;;
     cdi) run_script "02_setup_cdi.sh" ;;
     build|image) run_script "03_build_image.sh" ;;
     *)

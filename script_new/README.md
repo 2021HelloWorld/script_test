@@ -39,9 +39,9 @@ script_new/
 
 ### 1. 安装 NVIDIA 显卡驱动
 
-要求版本：`580.159.03`
+这是 `easim` 交互脚本的前置条件，不放进菜单里自动安装。
 
-可以通过系统「软件和更新 -> 附加驱动」安装，或使用命令安装：
+要求版本：`580.159.03`
 
 ```bash
 sudo ubuntu-drivers install nvidia:580
@@ -54,35 +54,9 @@ sudo reboot
 nvidia-smi
 ```
 
-### 2. 安装 CUDA 12.8
-
-```bash
-bash script_new/00_install_cuda.sh
-```
-
-验证：
-
-```bash
-nvcc --version
-```
-
 > 驱动版本必须为 `580.159.03`，脚本会强制校验，不匹配则报错退出。驱动和 CUDA 版本强绑定，不要随意升级其中一个。
 
-### 3. 安装 Docker 29.1.3
-
-```bash
-bash script_new/01_install_host_deps.sh
-```
-
-验证：
-
-```bash
-docker --version
-```
-
-> 安装完成后脚本会自动将当前用户加入 docker 组，执行 `newgrp docker` 或重新登录后生效。
-
-### 4. 准备 easim 代码仓库
+### 2. 准备 easim 代码仓库
 
 ```bash
 git clone https://gitlab.senseauto.com/kaiwu/simulation/utils/easim.git
@@ -92,11 +66,22 @@ git checkout origin/feature/nav2-integration-dev-20260410
 
 分支按实际开发版本选择。完成后记下 easim 仓库的绝对路径，后面配置时会用到。
 
-### 5. 配置部署参数
+### 3. 进入 easim 菜单执行首次部署
 
 ```bash
-bash script_new/easim.sh setup
+bash script_new/easim.sh
 ```
+
+选择 `1) 首次部署`。如果还没有 `config.sh`，脚本会先进入配置向导。
+
+首次部署会先做环境预检：
+
+1. NVIDIA 驱动只检查，不自动安装
+2. CUDA Toolkit 未安装或不是 12.8 时，自动执行 `00_install_cuda.sh` 安装 CUDA 12.8
+3. Docker 未安装或不是 29.1.3 时，自动执行 `01_install_host_deps.sh` 安装 Docker 29.1.3
+4. 预检通过后继续配置 CDI、构建镜像、启动容器、可选初始化
+
+如果 Docker 安装后提示当前用户需要重新登录或执行 `newgrp docker`，按提示处理后重新运行 `bash script_new/easim.sh` 并选择 `1) 首次部署`。
 
 重点确认：
 
@@ -109,77 +94,24 @@ bash script_new/easim.sh setup
 | `ROS_DOMAIN_ID` | ROS domain ID，默认 `0` |
 | `GDM_XAUTH` | 当前桌面会话的 Xauthority 路径 |
 
-### 6. 环境预检
-
-```bash
-bash script_new/easim.sh check
-```
-
-预检只报告状态，不安装、不修改环境。检查项包括：
-
-1. `config.sh` 和关键路径
-2. NVIDIA 驱动版本
-3. CUDA Toolkit
-4. Docker 和 Docker daemon 权限
-
-### 7. 首次部署 Docker 环境
-
-```bash
-bash script_new/easim.sh deploy
-```
-
-`deploy` 会依次执行：
-
-1. `02_setup_cdi.sh`：配置 NVIDIA CDI
-2. `03_build_image.sh`：构建 easim Docker 镜像
-3. `04_start_container.sh`：启动容器
-4. 可选执行容器初始化
-
-新容器通常需要初始化一次。部署过程中看到：
-
-```text
-是否现在初始化容器环境？新容器通常需要执行一次。
-```
-
-建议选择 `yes`。
-
----
-
-## 已有 CUDA/Docker 的机器
-
-如果机器上已经安装好 NVIDIA 驱动、CUDA 和 Docker，可以从配置和部署开始：
-
-```bash
-bash script_new/easim.sh setup
-bash script_new/easim.sh check
-bash script_new/easim.sh deploy
-```
-
-如果预检提示 CUDA 或 Docker 不符合要求，再单独执行：
-
-```bash
-bash script_new/00_install_cuda.sh
-bash script_new/01_install_host_deps.sh
-```
-
----
 
 ## 宿主机重启后
 
 宿主机重启，或退出桌面会话后重新登录，需要重新刷新 Xauthority 并恢复容器：
 
 ```bash
-bash script_new/easim.sh restart
+bash script_new/easim.sh
 ```
 
-该命令实际执行的是：
-
-```bash
-bash script_new/04_start_container.sh
-```
+选择（2）
 
 ---
 
+## 进入容器
+
+```bash
+bash docker exec -it kxq_easim_container /bin/bash
+```
 ## 常用命令
 
 ```bash
@@ -194,8 +126,6 @@ bash script_new/easim.sh status     # 查看配置、镜像、容器状态
 维护命令：
 
 ```bash
-bash script_new/easim.sh cuda       # 执行 00_install_cuda.sh
-bash script_new/easim.sh host-deps  # 执行 01_install_host_deps.sh
 bash script_new/easim.sh cdi        # 执行 02_setup_cdi.sh
 bash script_new/easim.sh build      # 执行 03_build_image.sh
 ```
@@ -230,7 +160,7 @@ bash script_new/easim.sh setup
 
 运行位置：宿主机
 
-运行时机：首次部署，在安装 NVIDIA 驱动之后、安装 Docker 之前
+运行时机：`1) 首次部署` 的环境预检阶段，在安装 NVIDIA 驱动之后、安装 Docker 之前自动执行
 
 作用：
 
@@ -240,15 +170,13 @@ bash script_new/easim.sh setup
 4. 写入 `PATH` / `LD_LIBRARY_PATH`
 5. 验证 `nvcc --version`
 
-```bash
-bash script_new/00_install_cuda.sh
-```
+一般不需要手动执行，推荐通过 `bash script_new/easim.sh` -> `1) 首次部署` 自动调用。
 
 ### 01_install_host_deps.sh
 
 运行位置：宿主机
 
-运行时机：首次部署，在安装 CUDA 之后
+运行时机：`1) 首次部署` 的环境预检阶段，在安装 CUDA 之后自动执行
 
 作用：
 
@@ -257,9 +185,7 @@ bash script_new/00_install_cuda.sh
 3. 启动 Docker 服务并设置开机自启
 4. 将当前用户加入 docker 组
 
-```bash
-bash script_new/01_install_host_deps.sh
-```
+一般不需要手动执行，推荐通过 `bash script_new/easim.sh` -> `1) 首次部署` 自动调用。
 
 ### 02_setup_cdi.sh
 
