@@ -33,8 +33,9 @@ usage() {
   bash script_new/easim.sh [command]
 
 常用命令:
-  deploy      首次部署：配置 -> CDI -> 构建镜像 -> 启动容器 -> 可选初始化
-  restart     重启/恢复环境
+  deploy      首次部署：配置 -> CDI -> 构建镜像 -> 启动容器 -> 可选初始化/验证
+  container   容器状态管理
+  restart     启动/恢复容器
   status      查看当前配置、镜像、容器状态
 
 维护命令:
@@ -372,14 +373,148 @@ first_deploy() {
 
     if ask_yes_no "是否现在初始化容器环境？新容器通常需要执行一次。" "yes"; then
         init_container_env
+        if ask_yes_no "是否进行 Isaac Sim / Isaac Lab 环境验证？" "yes"; then
+            verify_isaac_env
+        else
+            info "稍后可运行：bash script_new/easim.sh verify"
+        fi
     else
         info "稍后可运行：bash script_new/easim.sh init"
+        info "未执行容器初始化，跳过 Isaac Sim / Isaac Lab 环境验证。"
     fi
 }
 
 start_container() {
     load_config
     run_script "04_start_container.sh"
+}
+
+ensure_docker_available() {
+    command -v docker &>/dev/null || error "未找到 docker 命令，请先安装 Docker。"
+    docker info &>/dev/null || error "Docker daemon 不可访问，请确认 Docker 服务已启动，且当前用户有权限访问 /var/run/docker.sock。"
+}
+
+container_exists() {
+    docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"
+}
+
+container_running() {
+    docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"
+}
+
+show_container_status() {
+    load_config
+    ensure_docker_available
+
+    info "镜像名：${IMAGE_NAME:-未设置}"
+    info "容器名：${CONTAINER_NAME:-未设置}"
+
+    if [ -n "${IMAGE_NAME:-}" ] && docker image inspect "$IMAGE_NAME" &>/dev/null; then
+        info "镜像状态：$IMAGE_NAME 已存在"
+    else
+        warn "镜像状态：${IMAGE_NAME:-未设置} 不存在"
+    fi
+
+    if container_exists; then
+        local status
+        status="$(docker inspect -f '{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo unknown)"
+        info "容器状态：$CONTAINER_NAME ($status)"
+    else
+        warn "容器状态：$CONTAINER_NAME 不存在"
+    fi
+}
+
+enter_container_shell() {
+    load_config
+    ensure_docker_available
+
+    if ! container_running; then
+        warn "容器 $CONTAINER_NAME 未运行。"
+        if ask_yes_no "是否先启动/恢复容器？" "yes"; then
+            run_script "04_start_container.sh"
+        else
+            error "容器未运行，无法进入。"
+        fi
+    fi
+
+    docker exec -it "$CONTAINER_NAME" /bin/bash
+}
+
+stop_container() {
+    load_config
+    ensure_docker_available
+
+    if container_running; then
+        docker stop "$CONTAINER_NAME"
+        info "容器已停止：$CONTAINER_NAME"
+    elif container_exists; then
+        warn "容器 $CONTAINER_NAME 已经是停止状态。"
+    else
+        warn "容器 $CONTAINER_NAME 不存在。"
+    fi
+}
+
+restart_container_instance() {
+    load_config
+    ensure_docker_available
+
+    if container_exists; then
+        docker restart "$CONTAINER_NAME"
+        info "容器已重启：$CONTAINER_NAME"
+        info "如图形界面授权异常，请执行“启动/恢复容器”刷新 Xauthority。"
+    else
+        warn "容器 $CONTAINER_NAME 不存在，将进入启动/恢复流程。"
+        run_script "04_start_container.sh"
+    fi
+}
+
+recreate_container() {
+    load_config
+    ensure_docker_available
+
+    warn "重建容器会删除旧容器，容器内 pip 安装的包将丢失。"
+    if ! ask_yes_no "确认删除并重新创建容器 $CONTAINER_NAME？" "no"; then
+        info "已取消重建。"
+        return 0
+    fi
+
+    if container_exists; then
+        docker rm -f "$CONTAINER_NAME"
+        info "旧容器已删除：$CONTAINER_NAME"
+    else
+        warn "旧容器不存在，将直接创建新容器。"
+    fi
+
+    run_script "04_start_container.sh"
+}
+
+container_menu() {
+    while true; do
+        print_header
+        echo "容器状态管理："
+        echo "  1) 查看容器状态"
+        echo "  2) 启动/恢复容器（刷新图形授权）"
+        echo "  3) 进入容器 shell"
+        echo "  4) 停止容器"
+        echo "  5) 重启容器"
+        echo "  6) 重建容器"
+        echo "  7) 初始化容器环境"
+        echo "  0) 返回主菜单"
+        echo ""
+        read -rp "输入序号 [0-7]: " choice
+
+        case "$choice" in
+            1) run_menu_action show_container_status ;;
+            2) run_menu_action start_container ;;
+            3) run_menu_action enter_container_shell ;;
+            4) run_menu_action stop_container ;;
+            5) run_menu_action restart_container_instance ;;
+            6) run_menu_action recreate_container ;;
+            7) run_menu_action init_container_env ;;
+            0) return 0 ;;
+            *) warn "无效输入：$choice"; pause ;;
+        esac
+    done
 }
 
 init_container_env() {
@@ -497,18 +632,16 @@ main_menu() {
         print_header
         echo "请选择功能："
         echo "  1) 首次部署"
-        echo "  2) 重启/恢复环境"
-        echo "  3) Isaac Sim / Isaac Lab 环境验证"
-        echo "  4) 状态查看"
+        echo "  2) 容器状态管理"
+        echo "  3) 环境状态查看"
         echo "  0) 退出"
         echo ""
-        read -rp "输入序号 [0-4]: " choice
+        read -rp "输入序号 [0-3]: " choice
 
         case "$choice" in
             1) run_menu_action first_deploy ;;
-            2) run_menu_action start_container ;;
-            3) run_menu_action verify_isaac_env ;;
-            4) run_menu_action status_report ;;
+            2) container_menu ;;
+            3) run_menu_action status_report ;;
             0) exit 0 ;;
             *) warn "无效输入：$choice"; pause ;;
         esac
@@ -522,7 +655,8 @@ case "$command" in
     check) check_command ;;
     setup|config) setup_config ;;
     deploy) first_deploy ;;
-    restart|start|container) start_container ;;
+    container|containers) container_menu ;;
+    restart|start) start_container ;;
     init) init_container_env ;;
     verify|isaac|sim) verify_isaac_env ;;
     status) status_report ;;

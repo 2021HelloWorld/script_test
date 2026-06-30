@@ -80,6 +80,7 @@ bash script_new/easim.sh
 2. CUDA Toolkit 未安装或不是 12.8 时，自动执行 `00_install_cuda.sh` 安装 CUDA 12.8
 3. Docker 未安装或不是 29.1.3 时，自动执行 `01_install_host_deps.sh` 安装 Docker 29.1.3
 4. 预检通过后继续配置 CDI、构建镜像、启动容器、可选初始化
+5. 初始化完成后可自动执行 Isaac Sim / Isaac Lab 环境验证
 
 如果 Docker 安装后提示当前用户需要重新登录或执行 `newgrp docker`，按提示处理后重新运行 `bash script_new/easim.sh` 并选择 `1) 首次部署`。
 
@@ -95,22 +96,32 @@ bash script_new/easim.sh
 | `GDM_XAUTH` | 当前桌面会话的 Xauthority 路径 |
 
 
-## 宿主机重启后
+## 容器状态管理
 
-宿主机重启，或退出桌面会话后重新登录，需要重新刷新 Xauthority 并恢复容器：
+宿主机重启、退出桌面会话后重新登录、容器停止、图形界面授权失效、需要进入或重建容器时，进入容器状态管理：
 
 ```bash
 bash script_new/easim.sh
 ```
 
-选择（2）
+选择 `2) 容器状态管理`。
+
+子菜单提供：
+
+1. 查看容器状态
+2. 启动/恢复容器（刷新图形授权）
+3. 进入容器 shell
+4. 停止容器
+5. 重启容器
+6. 重建容器
+7. 初始化容器环境
 
 ---
 
 ## 进入容器
 
 ```bash
-bash docker exec -it kxq_easim_container /bin/bash
+docker exec -it kxq_easim_container /bin/bash
 ```
 ## 常用命令
 
@@ -118,8 +129,10 @@ bash docker exec -it kxq_easim_container /bin/bash
 bash script_new/easim.sh setup      # 首次配置或修改 config.sh
 bash script_new/easim.sh check      # 环境预检
 bash script_new/easim.sh deploy     # 首次部署 Docker 环境
-bash script_new/easim.sh restart    # 重启/恢复容器环境
+bash script_new/easim.sh container  # 容器状态管理
+bash script_new/easim.sh restart    # 启动/恢复容器
 bash script_new/easim.sh init       # 初始化容器内 easim/Isaac Lab 环境
+bash script_new/easim.sh verify     # Isaac Sim / Isaac Lab 基础环境验证
 bash script_new/easim.sh status     # 查看配置、镜像、容器状态
 ```
 
