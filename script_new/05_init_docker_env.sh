@@ -38,7 +38,39 @@ grep -q 'export DISPLAY=' /root/.bashrc || \
 grep -q 'export OMNI_KIT_ALLOW_ROOT=' /root/.bashrc || \
     echo 'export OMNI_KIT_ALLOW_ROOT=1' >> /root/.bashrc
 
-info "DISPLAY=${DISP_NUM}, OMNI_KIT_ALLOW_ROOT=1 已写入 .bashrc ✓"
+# Isaac Sim 自带的 torch 是 cu128 版，启动时需要 dlopen libcudart.so.12 / libcublas.so.12 /
+# libcusparseLt.so.0 等一系列 cu12 库。这些库在 ml_archive 扩展的 pip_prebundle 下
+# （nvidia/*/lib，以及根下的 cusparselt/lib 等），但镜像走「方案 B」（CUDA 13），容器的
+# LD_LIBRARY_PATH / ldconfig 里只有 .so.13，没有 .so.12，于是 dlopen 失败，报
+#   OSError: libcudart.so.12: cannot open shared object file
+# （torch 随后打印的 "libcublas.so.*[0-9] not found in the system path" 是回退到 sys.path
+#   再找一次的二次错误，有误导性——真正缺的是动态库搜索路径，不是 PYTHONPATH）。
+#
+# 注入点用 /etc/profile.d：bash -lc（登录 shell，即 easim.sh 的 docker exec 验证/启动路径）
+# 会读取它；而 /root/.bashrc 第 6 行 `[ -z "$PS1" ] && return` 会让非交互 shell 提前退出，
+# 写在 .bashrc 里对验证选项无效，所以这里改用 profile.d，并让 .bashrc 也 source 它以覆盖
+# 交互式 docker exec -it bash 场景。把整个 prebundle 下所有 lib 目录都加入 LD_LIBRARY_PATH。
+info "[1b/8] 写入 cu12 动态库搜索路径（/etc/profile.d/easim_cuda.sh）..."
+cat > /etc/profile.d/easim_cuda.sh <<'PROFILE_EOF'
+# Isaac Sim 自带 torch(cu128) 需要 cu12 动态库，将 ml_archive prebundle 的所有 lib 目录加入 LD_LIBRARY_PATH
+__PB="/data/isaac_workspace/IsaacSim/exts/omni.isaac.ml_archive/pip_prebundle"
+if [ -d "$__PB" ]; then
+    __PB_LIBS="$(find "$__PB" -name lib -type d 2>/dev/null | tr '\n' ':')"
+    case ":${LD_LIBRARY_PATH:-}:" in
+        *":${__PB%/}/nvidia/cuda_runtime/lib:"*) : ;;  # 已包含则跳过，避免重复叠加
+        *) export LD_LIBRARY_PATH="${__PB_LIBS}${LD_LIBRARY_PATH:-}" ;;
+    esac
+fi
+unset __PB __PB_LIBS
+PROFILE_EOF
+chmod 644 /etc/profile.d/easim_cuda.sh
+
+# 让交互式非登录 shell（docker exec -it bash）也能加载：在 .bashrc 顶部的 return 之前 source
+if ! grep -q 'easim_cuda.sh' /root/.bashrc; then
+    sed -i '1i [ -f /etc/profile.d/easim_cuda.sh ] \&\& . /etc/profile.d/easim_cuda.sh' /root/.bashrc
+fi
+
+info "DISPLAY=${DISP_NUM}, OMNI_KIT_ALLOW_ROOT=1 已写入 .bashrc；cu12 LD_LIBRARY_PATH 已写入 profile.d ✓"
 
 # ---------- Step 2: 创建 isaac_workspace 软链接 ----------
 info "[2/8] 创建 /easim/isaac_workspace 软链接..."

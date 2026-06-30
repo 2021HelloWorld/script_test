@@ -558,7 +558,7 @@ verify_isaac_env() {
     fi
 
     local verify_cmd
-    verify_cmd='export OMNI_KIT_ALLOW_ROOT=1; cd /easim && if [ ! -x ./isaac_workspace/IsaacLab/isaaclab.sh ]; then echo "[ERROR] 找不到或不可执行：/easim/isaac_workspace/IsaacLab/isaaclab.sh" >&2; exit 1; fi; ./isaac_workspace/IsaacLab/isaaclab.sh -s'
+    verify_cmd='[ -f /etc/profile.d/easim_cuda.sh ] && . /etc/profile.d/easim_cuda.sh; export OMNI_KIT_ALLOW_ROOT=1; cd /easim && if [ ! -x ./isaac_workspace/IsaacLab/isaaclab.sh ]; then echo "[ERROR] 找不到或不可执行：/easim/isaac_workspace/IsaacLab/isaaclab.sh" >&2; exit 1; fi; ./isaac_workspace/IsaacLab/isaaclab.sh -s'
 
     info "在容器 $CONTAINER_NAME 内进行 Isaac Sim / Isaac Lab 基础环境验证..."
     if [ -t 0 ] && [ -t 1 ]; then
