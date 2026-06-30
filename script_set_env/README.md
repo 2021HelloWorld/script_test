@@ -2,14 +2,14 @@
 
 ## 脚本放置位置
 
-这套部署脚本是宿主机侧的辅助脚本，不是 easim 仿真项目源码的一部分。可以把 `script_new/` 放在宿主机任意目录中使用，只要确保 `config.sh` 中的 `EASIM_HOST_PATH` 指向 easim 仿真项目根目录即可。
+这套部署脚本是宿主机侧的辅助脚本，不是 easim 仿真项目源码的一部分。可以把 `script_set_env/` 放在宿主机任意目录中使用，只要确保 `config.sh` 中的 `EASIM_HOST_PATH` 指向 easim 仿真项目根目录即可。
 
 容器启动时会挂载：
 
 | 宿主机路径 | 容器内路径 | 说明 |
 |------------|------------|------|
 | `EASIM_HOST_PATH` | `/easim` | easim 代码仓库 |
-| `script_new/` | `/deploy_scripts` | 本目录下的部署脚本 |
+| `script_set_env/` | `/deploy_scripts` | 本目录下的部署脚本 |
 
 > 不建议把这套部署脚本放进 `.../easim/scripts/`。该路径通常属于 easim 仓库自己的脚本目录，和容器内的 `/deploy_scripts/` 不是同一用途，混放容易造成误解。
 
@@ -18,7 +18,7 @@
 ## 目录结构
 
 ```text
-script_new/
+script_set_env/
 ├── easim.sh                # 统一入口菜单和快捷命令
 ├── setup.sh                # 交互式配置向导，生成 config.sh
 ├── config.sh               # 统一配置变量
@@ -69,7 +69,7 @@ git checkout origin/feature/nav2-integration-dev-20260410
 ### 3. 进入 easim 菜单执行首次部署
 
 ```bash
-bash script_new/easim.sh
+bash script_set_env/easim.sh
 ```
 
 选择 `1) 首次部署`。如果还没有 `config.sh`，脚本会先进入配置向导。
@@ -82,7 +82,7 @@ bash script_new/easim.sh
 4. 预检通过后继续配置 CDI、构建镜像、启动容器、可选初始化
 5. 初始化完成后可自动执行 Isaac Sim / Isaac Lab 环境验证
 
-如果 Docker 安装后提示当前用户需要重新登录或执行 `newgrp docker`，按提示处理后重新运行 `bash script_new/easim.sh` 并选择 `1) 首次部署`。
+如果 Docker 安装后提示当前用户需要重新登录或执行 `newgrp docker`，按提示处理后重新运行 `bash script_set_env/easim.sh` 并选择 `1) 首次部署`。
 
 重点确认：
 
@@ -101,7 +101,7 @@ bash script_new/easim.sh
 宿主机重启、退出桌面会话后重新登录、容器停止、图形界面授权失效、需要进入或重建容器时，进入容器状态管理：
 
 ```bash
-bash script_new/easim.sh
+bash script_set_env/easim.sh
 ```
 
 选择 `2) 容器状态管理`。
@@ -126,21 +126,21 @@ docker exec -it kxq_easim_container /bin/bash
 ## 常用命令
 
 ```bash
-bash script_new/easim.sh setup      # 首次配置或修改 config.sh
-bash script_new/easim.sh check      # 环境预检
-bash script_new/easim.sh deploy     # 首次部署 Docker 环境
-bash script_new/easim.sh container  # 容器状态管理
-bash script_new/easim.sh restart    # 启动/恢复容器
-bash script_new/easim.sh init       # 初始化容器内 easim/Isaac Lab 环境
-bash script_new/easim.sh verify     # Isaac Sim / Isaac Lab 基础环境验证
-bash script_new/easim.sh status     # 查看配置、镜像、容器状态
+bash script_set_env/easim.sh setup      # 首次配置或修改 config.sh
+bash script_set_env/easim.sh check      # 环境预检
+bash script_set_env/easim.sh deploy     # 首次部署 Docker 环境
+bash script_set_env/easim.sh container  # 容器状态管理
+bash script_set_env/easim.sh restart    # 启动/恢复容器
+bash script_set_env/easim.sh init       # 初始化容器内 easim/Isaac Lab 环境
+bash script_set_env/easim.sh verify     # Isaac Sim / Isaac Lab 基础环境验证
+bash script_set_env/easim.sh status     # 查看配置、镜像、容器状态
 ```
 
 维护命令：
 
 ```bash
-bash script_new/easim.sh cdi        # 执行 02_setup_cdi.sh
-bash script_new/easim.sh build      # 执行 03_build_image.sh
+bash script_set_env/easim.sh cdi        # 执行 02_setup_cdi.sh
+bash script_set_env/easim.sh build      # 执行 03_build_image.sh
 ```
 
 ## 各脚本说明
@@ -154,7 +154,7 @@ bash script_new/easim.sh build      # 执行 03_build_image.sh
 作用：交互式生成或更新 `config.sh`。
 
 ```bash
-bash script_new/setup.sh
+bash script_set_env/setup.sh
 ```
 
 ### config.sh
@@ -166,7 +166,7 @@ bash script_new/setup.sh
 一般不需要手动改，推荐通过下面命令修改：
 
 ```bash
-bash script_new/easim.sh setup
+bash script_set_env/easim.sh setup
 ```
 
 ### 00_install_cuda.sh
@@ -183,7 +183,7 @@ bash script_new/easim.sh setup
 4. 写入 `PATH` / `LD_LIBRARY_PATH`
 5. 验证 `nvcc --version`
 
-一般不需要手动执行，推荐通过 `bash script_new/easim.sh` -> `1) 首次部署` 自动调用。
+一般不需要手动执行，推荐通过 `bash script_set_env/easim.sh` -> `1) 首次部署` 自动调用。
 
 ### 01_install_host_deps.sh
 
@@ -198,7 +198,7 @@ bash script_new/easim.sh setup
 3. 启动 Docker 服务并设置开机自启
 4. 将当前用户加入 docker 组
 
-一般不需要手动执行，推荐通过 `bash script_new/easim.sh` -> `1) 首次部署` 自动调用。
+一般不需要手动执行，推荐通过 `bash script_set_env/easim.sh` -> `1) 首次部署` 自动调用。
 
 ### 02_setup_cdi.sh
 
@@ -214,7 +214,7 @@ bash script_new/easim.sh setup
 4. 验证 CDI 设备
 
 ```bash
-bash script_new/02_setup_cdi.sh
+bash script_set_env/02_setup_cdi.sh
 ```
 
 ### 03_build_image.sh
@@ -230,14 +230,14 @@ bash script_new/02_setup_cdi.sh
 3. 构建 Docker 镜像
 
 ```bash
-bash script_new/03_build_image.sh
+bash script_set_env/03_build_image.sh
 ```
 
 如果镜像已存在，脚本会跳过构建。如需重新构建，先删除旧镜像：
 
 ```bash
 docker rmi easim:v0.3
-bash script_new/03_build_image.sh
+bash script_set_env/03_build_image.sh
 ```
 
 ### 04_start_container.sh
@@ -255,7 +255,7 @@ bash script_new/03_build_image.sh
 5. 挂载 easim 代码和部署脚本目录
 
 ```bash
-bash script_new/04_start_container.sh
+bash script_set_env/04_start_container.sh
 ```
 
 手动进入容器：
@@ -281,7 +281,7 @@ docker exec -it kxq_easim_container /bin/bash
 推荐从宿主机执行统一入口：
 
 ```bash
-bash script_new/easim.sh init
+bash script_set_env/easim.sh init
 ```
 
 也可以进入容器后手动执行：
@@ -326,7 +326,7 @@ id -u
 然后重新运行配置向导，确认 `GDM_XAUTH` 路径：
 
 ```bash
-bash script_new/easim.sh setup
+bash script_set_env/easim.sh setup
 ```
 
 ### `/tmp/.docker.xauth` 权限异常
@@ -334,7 +334,7 @@ bash script_new/easim.sh setup
 启动/恢复容器时脚本会自动创建并修复 `/tmp/.docker.xauth` 目录权限，然后刷新 `/tmp/.docker.xauth/Xauthority`。如果该目录曾由 `root` 或其他用户创建，重新运行：
 
 ```bash
-bash script_new/easim.sh container
+bash script_set_env/easim.sh container
 ```
 
 选择 `2) 启动/恢复容器（刷新图形授权）` 即可自动修复。
@@ -358,7 +358,7 @@ docker info
 ```bash
 docker rm -f kxq_easim_container
 sudo rm -f /etc/cdi/nvidia.yaml
-bash script_new/easim.sh deploy
+bash script_set_env/easim.sh deploy
 ```
 
 ### 容器内 `/deploy_scripts/05_init_docker_env.sh` 找不到
@@ -366,7 +366,7 @@ bash script_new/easim.sh deploy
 `/deploy_scripts` 是容器内路径，宿主机上不存在。先启动容器，再进入容器执行：
 
 ```bash
-bash script_new/easim.sh restart
+bash script_set_env/easim.sh restart
 docker exec -it kxq_easim_container /bin/bash
 bash /deploy_scripts/05_init_docker_env.sh
 ```
@@ -374,5 +374,5 @@ bash /deploy_scripts/05_init_docker_env.sh
 也可以直接从宿主机执行：
 
 ```bash
-bash script_new/easim.sh init
+bash script_set_env/easim.sh init
 ```

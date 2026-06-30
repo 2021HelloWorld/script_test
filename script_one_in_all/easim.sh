@@ -30,19 +30,21 @@ print_header() {
 usage() {
     cat <<EOF
 用法:
-  bash script_new/easim.sh [command]
+  bash script_one_in_all/easim.sh [command]
 
 常用命令:
-  deploy      首次部署：配置 -> CDI -> 构建镜像 -> 启动容器 -> 可选初始化/验证
-  container   容器状态管理
-  restart     启动/恢复容器
+  deploy      首次部署：配置 -> CDI -> 构建镜像 -> 启动容器 -> 可选初始化
+  restart     重启/恢复环境
+  teleop      启动遥操菜单
+  process     处理遥操数据集
   status      查看当前配置、镜像、容器状态
 
 维护命令:
   check       环境预检，只报告状态，不安装/不修改环境
   setup       首次配置或修改 config.sh
   init        初始化容器内 easim/Isaac Lab 环境
-  verify      Isaac Sim / Isaac Lab 基础环境验证
+  cuda        安装 CUDA Toolkit
+  host-deps   安装 Docker/tmux 等宿主机依赖
   cdi         配置 NVIDIA CDI
   build       构建 Docker 镜像
 
@@ -56,7 +58,8 @@ pause() {
 }
 
 run_menu_action() {
-    if ( "$@" ); then
+    local action="$1"
+    if ( "$action" ); then
         echo ""
         info "操作已结束，返回主菜单。"
     else
@@ -95,7 +98,7 @@ run_script() {
 }
 
 load_config() {
-    [ -f "$CONFIG_FILE" ] || error "未找到 config.sh，请先运行：bash script_new/easim.sh setup"
+    [ -f "$CONFIG_FILE" ] || error "未找到 config.sh，请先运行：bash script_one_in_all/easim.sh setup"
     # shellcheck source=/dev/null
     source "$CONFIG_FILE"
 }
@@ -127,29 +130,6 @@ check_fail() {
 
 check_hint() {
     echo "       $*"
-}
-
-cuda_toolkit_expected_ready() {
-    local nvcc_path cuda_version
-
-    if command -v nvcc &>/dev/null; then
-        nvcc_path="$(command -v nvcc)"
-    elif [ -x "$EXPECTED_CUDA_NVCC" ]; then
-        nvcc_path="$EXPECTED_CUDA_NVCC"
-    else
-        return 1
-    fi
-
-    cuda_version="$("$nvcc_path" --version 2>/dev/null | sed -nE 's/.*release ([0-9]+\.[0-9]+).*/\1/p' | head -1 || true)"
-    [ "$cuda_version" = "$EXPECTED_CUDA_VERSION" ]
-}
-
-docker_expected_ready() {
-    local docker_version
-
-    command -v docker &>/dev/null || return 1
-    docker_version="$(docker --version 2>/dev/null | sed -nE 's/^Docker version ([0-9]+(\.[0-9]+){0,2}).*/\1/p' || true)"
-    [ "$docker_version" = "$EXPECTED_DOCKER_VERSION" ]
 }
 
 check_nvidia_driver() {
@@ -197,11 +177,11 @@ check_cuda_toolkit() {
             fi
 
             check_fail "CUDA Toolkit：标准路径存在 nvcc，但版本为 ${cuda_version:-无法解析}，期望 ${EXPECTED_CUDA_VERSION}"
-            check_hint "首次部署会自动尝试安装指定 CUDA 版本。"
+            check_hint "建议检查 ${EXPECTED_CUDA_NVCC}，必要时执行：bash script_one_in_all/easim.sh cuda"
             return
         else
             check_fail "CUDA Toolkit：未找到 nvcc"
-            check_hint "首次部署会自动尝试安装 CUDA。"
+            check_hint "建议执行：bash script_one_in_all/easim.sh cuda"
         fi
         return
     fi
@@ -211,7 +191,7 @@ check_cuda_toolkit() {
         check_pass "CUDA Toolkit：${cuda_version}"
     elif [ -n "$cuda_version" ]; then
         check_fail "CUDA Toolkit：当前 ${cuda_version}，期望 ${EXPECTED_CUDA_VERSION}"
-        check_hint "首次部署会自动尝试安装指定 CUDA 版本。"
+        check_hint "建议执行：bash script_one_in_all/easim.sh cuda"
     else
         check_fail "CUDA Toolkit：无法解析 nvcc 版本"
         check_hint "请执行 nvcc --version 检查 CUDA 安装。"
@@ -228,7 +208,7 @@ check_docker_env() {
 
     if ! command -v docker &>/dev/null; then
         check_fail "Docker：未找到 docker 命令"
-        check_hint "首次部署会自动尝试安装 Docker。"
+        check_hint "建议执行：bash script_one_in_all/easim.sh host-deps"
         return
     fi
 
@@ -239,12 +219,12 @@ check_docker_env() {
         check_hint "请执行 docker --version 检查 Docker 安装。"
     elif [ "$docker_major" -lt "$MIN_DOCKER_MAJOR" ]; then
         check_fail "Docker：当前 ${docker_version}，要求 >= ${MIN_DOCKER_MAJOR}.0"
-        check_hint "CDI 依赖 Docker >= ${MIN_DOCKER_MAJOR}.0，首次部署会自动尝试安装指定 Docker 版本。"
+        check_hint "CDI 依赖 Docker >= ${MIN_DOCKER_MAJOR}.0，建议执行：bash script_one_in_all/easim.sh host-deps"
     elif [ "$docker_version" = "$EXPECTED_DOCKER_VERSION" ]; then
         check_pass "Docker：${docker_version}"
     else
-        check_fail "Docker：当前 ${docker_version}，期望 ${EXPECTED_DOCKER_VERSION}"
-        check_hint "首次部署会自动尝试安装指定 Docker 版本。"
+        check_warn "Docker：当前 ${docker_version}，推荐 ${EXPECTED_DOCKER_VERSION}"
+        check_hint "当前版本满足 CDI 最低要求，但与文档推荐版本不一致。"
     fi
 
     if docker info &>/dev/null; then
@@ -255,10 +235,19 @@ check_docker_env() {
     fi
 }
 
+check_tmux_env() {
+    if command -v tmux &>/dev/null; then
+        check_pass "tmux：$(tmux -V 2>/dev/null)"
+    else
+        check_warn "tmux：未安装或不在 PATH 中"
+        check_hint "部署可继续，但遥操脚本依赖 tmux；建议执行：bash script_one_in_all/easim.sh host-deps"
+    fi
+}
+
 check_config_paths() {
     if [ ! -f "$CONFIG_FILE" ]; then
         check_fail "配置文件：未找到 $CONFIG_FILE"
-        check_hint "建议执行：bash script_new/easim.sh setup"
+        check_hint "建议执行：bash script_one_in_all/easim.sh setup"
         return
     fi
 
@@ -270,14 +259,14 @@ check_config_paths() {
         check_pass "easim 路径：$EASIM_HOST_PATH"
     else
         check_fail "easim 路径：不存在或未配置：${EASIM_HOST_PATH:-未设置}"
-        check_hint "请执行：bash script_new/easim.sh setup"
+        check_hint "请执行：bash script_one_in_all/easim.sh setup"
     fi
 
     if [ -n "${ISAAC_TELEOP_PATH:-}" ] && [ -d "$ISAAC_TELEOP_PATH" ]; then
         check_pass "Isaac Teleop 路径：$ISAAC_TELEOP_PATH"
     else
         check_warn "Isaac Teleop 路径：不存在或未配置：${ISAAC_TELEOP_PATH:-未设置}"
-        check_hint "该路径只影响遥操，不影响 Docker 环境搭建。"
+        check_hint "部署可继续，但启动遥操前需要修正该路径。"
     fi
 }
 
@@ -292,6 +281,7 @@ check_env() {
     check_nvidia_driver
     check_cuda_toolkit
     check_docker_env
+    check_tmux_env
 
     echo ""
     if [ "$CHECK_FAILS" -gt 0 ]; then
@@ -312,39 +302,6 @@ check_command() {
     check_env
 }
 
-deploy_precheck_and_install_deps() {
-    CHECK_FAILS=0
-    CHECK_WARNINGS=0
-
-    echo -e "${CYAN}首次部署环境预检（CUDA/Docker 缺失或版本不符时自动安装）${NC}"
-    echo ""
-
-    check_config_paths
-    check_nvidia_driver
-
-    if [ "$CHECK_FAILS" -gt 0 ]; then
-        echo ""
-        error "前置条件未通过。请先安装 NVIDIA 驱动 ${EXPECTED_NVIDIA_DRIVER} 并确认配置路径正确。"
-    fi
-
-    if cuda_toolkit_expected_ready; then
-        check_pass "CUDA Toolkit：${EXPECTED_CUDA_VERSION}"
-    else
-        warn "未检测到符合要求的 CUDA ${EXPECTED_CUDA_VERSION}，开始自动安装指定版本。"
-        run_script "00_install_cuda.sh" || return 1
-    fi
-
-    if docker_expected_ready; then
-        check_pass "Docker：${EXPECTED_DOCKER_VERSION}"
-    else
-        warn "未检测到符合要求的 Docker ${EXPECTED_DOCKER_VERSION}，开始自动安装指定版本。"
-        run_script "01_install_host_deps.sh" || return 1
-    fi
-
-    echo ""
-    check_env
-}
-
 first_deploy() {
     print_header
     ensure_config_or_setup
@@ -354,7 +311,7 @@ first_deploy() {
     fi
 
     echo ""
-    if ! deploy_precheck_and_install_deps; then
+    if ! check_env; then
         error "环境预检未通过，已停止首次部署。"
     fi
 
@@ -373,148 +330,14 @@ first_deploy() {
 
     if ask_yes_no "是否现在初始化容器环境？新容器通常需要执行一次。" "yes"; then
         init_container_env
-        if ask_yes_no "是否进行 Isaac Sim / Isaac Lab 环境验证？" "yes"; then
-            verify_isaac_env
-        else
-            info "稍后可运行：bash script_new/easim.sh verify"
-        fi
     else
-        info "稍后可运行：bash script_new/easim.sh init"
-        info "未执行容器初始化，跳过 Isaac Sim / Isaac Lab 环境验证。"
+        info "稍后可运行：bash script_one_in_all/easim.sh init"
     fi
 }
 
 start_container() {
     load_config
     run_script "04_start_container.sh"
-}
-
-ensure_docker_available() {
-    command -v docker &>/dev/null || error "未找到 docker 命令，请先安装 Docker。"
-    docker info &>/dev/null || error "Docker daemon 不可访问，请确认 Docker 服务已启动，且当前用户有权限访问 /var/run/docker.sock。"
-}
-
-container_exists() {
-    docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"
-}
-
-container_running() {
-    docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"
-}
-
-show_container_status() {
-    load_config
-    ensure_docker_available
-
-    info "镜像名：${IMAGE_NAME:-未设置}"
-    info "容器名：${CONTAINER_NAME:-未设置}"
-
-    if [ -n "${IMAGE_NAME:-}" ] && docker image inspect "$IMAGE_NAME" &>/dev/null; then
-        info "镜像状态：$IMAGE_NAME 已存在"
-    else
-        warn "镜像状态：${IMAGE_NAME:-未设置} 不存在"
-    fi
-
-    if container_exists; then
-        local status
-        status="$(docker inspect -f '{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo unknown)"
-        info "容器状态：$CONTAINER_NAME ($status)"
-    else
-        warn "容器状态：$CONTAINER_NAME 不存在"
-    fi
-}
-
-enter_container_shell() {
-    load_config
-    ensure_docker_available
-
-    if ! container_running; then
-        warn "容器 $CONTAINER_NAME 未运行。"
-        if ask_yes_no "是否先启动/恢复容器？" "yes"; then
-            run_script "04_start_container.sh"
-        else
-            error "容器未运行，无法进入。"
-        fi
-    fi
-
-    docker exec -it "$CONTAINER_NAME" /bin/bash
-}
-
-stop_container() {
-    load_config
-    ensure_docker_available
-
-    if container_running; then
-        docker stop "$CONTAINER_NAME"
-        info "容器已停止：$CONTAINER_NAME"
-    elif container_exists; then
-        warn "容器 $CONTAINER_NAME 已经是停止状态。"
-    else
-        warn "容器 $CONTAINER_NAME 不存在。"
-    fi
-}
-
-restart_container_instance() {
-    load_config
-    ensure_docker_available
-
-    if container_exists; then
-        docker restart "$CONTAINER_NAME"
-        info "容器已重启：$CONTAINER_NAME"
-        info "如图形界面授权异常，请执行“启动/恢复容器”刷新 Xauthority。"
-    else
-        warn "容器 $CONTAINER_NAME 不存在，将进入启动/恢复流程。"
-        run_script "04_start_container.sh"
-    fi
-}
-
-recreate_container() {
-    load_config
-    ensure_docker_available
-
-    warn "重建容器会删除旧容器，容器内 pip 安装的包将丢失。"
-    if ! ask_yes_no "确认删除并重新创建容器 $CONTAINER_NAME？" "no"; then
-        info "已取消重建。"
-        return 0
-    fi
-
-    if container_exists; then
-        docker rm -f "$CONTAINER_NAME"
-        info "旧容器已删除：$CONTAINER_NAME"
-    else
-        warn "旧容器不存在，将直接创建新容器。"
-    fi
-
-    run_script "04_start_container.sh"
-}
-
-container_menu() {
-    while true; do
-        print_header
-        echo "容器状态管理："
-        echo "  1) 查看容器状态"
-        echo "  2) 启动/恢复容器（刷新图形授权）"
-        echo "  3) 进入容器 shell"
-        echo "  4) 停止容器"
-        echo "  5) 重启容器"
-        echo "  6) 重建容器"
-        echo "  7) 初始化容器环境"
-        echo "  0) 返回主菜单"
-        echo ""
-        read -rp "输入序号 [0-7]: " choice
-
-        case "$choice" in
-            1) run_menu_action show_container_status ;;
-            2) run_menu_action start_container ;;
-            3) run_menu_action enter_container_shell ;;
-            4) run_menu_action stop_container ;;
-            5) run_menu_action restart_container_instance ;;
-            6) run_menu_action recreate_container ;;
-            7) run_menu_action init_container_env ;;
-            0) return 0 ;;
-            *) warn "无效输入：$choice"; pause ;;
-        esac
-    done
 }
 
 init_container_env() {
@@ -541,31 +364,14 @@ init_container_env() {
     fi
 }
 
-verify_isaac_env() {
+teleop() {
     load_config
+    run_script "06_teleop_pico.sh"
+}
 
-    if ! command -v docker &>/dev/null; then
-        error "未找到 docker 命令，请先安装 Docker。"
-    fi
-
-    if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-        warn "容器 $CONTAINER_NAME 未运行。"
-        if ask_yes_no "是否先启动容器？" "yes"; then
-            run_script "04_start_container.sh"
-        else
-            error "容器未运行，无法进行 Isaac Sim / Isaac Lab 环境验证。"
-        fi
-    fi
-
-    local verify_cmd
-    verify_cmd='[ -f /etc/profile.d/easim_cuda.sh ] && . /etc/profile.d/easim_cuda.sh; export OMNI_KIT_ALLOW_ROOT=1; cd /easim && if [ ! -x ./isaac_workspace/IsaacLab/isaaclab.sh ]; then echo "[ERROR] 找不到或不可执行：/easim/isaac_workspace/IsaacLab/isaaclab.sh" >&2; exit 1; fi; ./isaac_workspace/IsaacLab/isaaclab.sh -s'
-
-    info "在容器 $CONTAINER_NAME 内进行 Isaac Sim / Isaac Lab 基础环境验证..."
-    if [ -t 0 ] && [ -t 1 ]; then
-        docker exec -it "$CONTAINER_NAME" bash -lc "$verify_cmd"
-    else
-        docker exec -i "$CONTAINER_NAME" bash -lc "$verify_cmd"
-    fi
+process_dataset() {
+    load_config
+    run_script "07_process_dataset.sh"
 }
 
 status_report() {
@@ -625,6 +431,15 @@ status_report() {
         warn "CDI 规格：/etc/cdi/nvidia.yaml 不存在"
     fi
 
+    if command -v tmux &>/dev/null; then
+        if tmux has-session -t easim_teleop 2>/dev/null; then
+            info "tmux：检测到 easim_teleop session（可能是后台保留）"
+        else
+            info "tmux：未发现 easim_teleop session"
+        fi
+    else
+        warn "tmux：未安装或不在 PATH 中"
+    fi
 }
 
 main_menu() {
@@ -632,16 +447,20 @@ main_menu() {
         print_header
         echo "请选择功能："
         echo "  1) 首次部署"
-        echo "  2) 容器状态管理"
-        echo "  3) 环境状态查看"
+        echo "  2) 重启/恢复环境"
+        echo "  3) 启动遥操"
+        echo "  4) 数据处理"
+        echo "  5) 状态查看"
         echo "  0) 退出"
         echo ""
-        read -rp "输入序号 [0-3]: " choice
+        read -rp "输入序号 [0-5]: " choice
 
         case "$choice" in
             1) run_menu_action first_deploy ;;
-            2) container_menu ;;
-            3) run_menu_action status_report ;;
+            2) run_menu_action start_container ;;
+            3) run_menu_action teleop ;;
+            4) run_menu_action process_dataset ;;
+            5) run_menu_action status_report ;;
             0) exit 0 ;;
             *) warn "无效输入：$choice"; pause ;;
         esac
@@ -655,11 +474,13 @@ case "$command" in
     check) check_command ;;
     setup|config) setup_config ;;
     deploy) first_deploy ;;
-    container|containers) container_menu ;;
-    restart|start) start_container ;;
+    restart|start|container) start_container ;;
     init) init_container_env ;;
-    verify|isaac|sim) verify_isaac_env ;;
+    teleop) teleop ;;
+    process|dataset) process_dataset ;;
     status) status_report ;;
+    cuda) run_script "00_install_cuda.sh" ;;
+    host-deps|deps|docker) run_script "01_install_host_deps.sh" ;;
     cdi) run_script "02_setup_cdi.sh" ;;
     build|image) run_script "03_build_image.sh" ;;
     *)
