@@ -34,14 +34,13 @@ usage() {
 
 常用命令:
   deploy      首次部署：配置 -> CDI -> 构建镜像 -> 启动容器 -> 可选初始化/验证
-  container   容器状态管理
-  restart     启动/恢复容器
+  paths       路径配置：配置 easim / Isaac Teleop Web 路径
+  container   容器环境管理
   status      查看当前配置、镜像、容器状态
 
 维护命令:
   check       环境预检，只报告状态，不安装/不修改环境
-  setup       首次配置或修改 config.sh
-  init        初始化容器内 easim/Isaac Lab 环境
+  setup       完整配置向导（修改 config.sh 全部配置）
   verify      Isaac Sim / Isaac Lab 基础环境验证
   cdi         配置 NVIDIA CDI
   build       构建 Docker 镜像
@@ -109,6 +108,59 @@ ensure_config_or_setup() {
 
 setup_config() {
     run_script "setup.sh"
+}
+
+# 就地更新 config.sh 中某个变量的赋值行，保留其余配置
+# 用法: update_config_var VAR_NAME NEW_VALUE
+update_config_var() {
+    local var_name="$1"
+    local new_value="$2"
+    local tmp
+    tmp="$(mktemp)"
+    # 用 awk 精确匹配 `VAR="..."` 行并整行替换，避免值里含特殊字符影响 sed
+    awk -v key="$var_name" -v val="$new_value" '
+        $0 ~ "^" key "=" { print key "=\"" val "\""; next }
+        { print }
+    ' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+}
+
+configure_paths() {
+    print_header
+    ensure_config_or_setup
+    load_config
+
+    echo "路径配置（只修改以下两个路径，其余配置请用 setup）："
+    echo ""
+
+    echo -e "${YELLOW}easim 代码在宿主机上的绝对路径${NC}"
+    echo -e "  当前值：${CYAN}${EASIM_HOST_PATH:-（未设置）}${NC}"
+    read -rp "  直接回车保留，或输入新值：" new_easim
+    new_easim="${new_easim:-${EASIM_HOST_PATH:-}}"
+    if [ -n "$new_easim" ] && [ ! -d "$new_easim" ]; then
+        warn "路径不存在：$new_easim（请确认后续会创建或挂载）"
+    fi
+
+    echo ""
+    echo -e "${YELLOW}Isaac Teleop Web 路径（IsaacTeleop/deps/cloudxr/webxr_client）${NC}"
+    echo -e "  当前值：${CYAN}${ISAAC_TELEOP_PATH:-（未设置）}${NC}"
+    read -rp "  直接回车保留，或输入新值：" new_teleop
+    new_teleop="${new_teleop:-${ISAAC_TELEOP_PATH:-}}"
+    if [ -n "$new_teleop" ] && [ ! -d "$new_teleop" ]; then
+        warn "路径不存在：$new_teleop（只影响遥操，不影响 Docker 环境搭建）"
+    fi
+
+    echo ""
+    echo -e "  EASIM_HOST_PATH   : ${CYAN}${new_easim:-（未填）}${NC}"
+    echo -e "  ISAAC_TELEOP_PATH : ${CYAN}${new_teleop:-（未填）}${NC}"
+    echo ""
+    if ! ask_yes_no "确认写入 config.sh？" "yes"; then
+        info "已取消，config.sh 未修改。"
+        return 0
+    fi
+
+    update_config_var "EASIM_HOST_PATH" "$new_easim"
+    update_config_var "ISAAC_TELEOP_PATH" "$new_teleop"
+    info "路径配置已更新 ✓"
 }
 
 check_pass() {
@@ -402,35 +454,13 @@ container_running() {
     docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"
 }
 
-show_container_status() {
-    load_config
-    ensure_docker_available
-
-    info "镜像名：${IMAGE_NAME:-未设置}"
-    info "容器名：${CONTAINER_NAME:-未设置}"
-
-    if [ -n "${IMAGE_NAME:-}" ] && docker image inspect "$IMAGE_NAME" &>/dev/null; then
-        info "镜像状态：$IMAGE_NAME 已存在"
-    else
-        warn "镜像状态：${IMAGE_NAME:-未设置} 不存在"
-    fi
-
-    if container_exists; then
-        local status
-        status="$(docker inspect -f '{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo unknown)"
-        info "容器状态：$CONTAINER_NAME ($status)"
-    else
-        warn "容器状态：$CONTAINER_NAME 不存在"
-    fi
-}
-
 enter_container_shell() {
     load_config
     ensure_docker_available
 
     if ! container_running; then
         warn "容器 $CONTAINER_NAME 未运行。"
-        if ask_yes_no "是否先启动/恢复容器？" "yes"; then
+        if ask_yes_no "是否先启动容器？" "yes"; then
             run_script "04_start_container.sh"
         else
             error "容器未运行，无法进入。"
@@ -454,27 +484,13 @@ stop_container() {
     fi
 }
 
-restart_container_instance() {
-    load_config
-    ensure_docker_available
-
-    if container_exists; then
-        docker restart "$CONTAINER_NAME"
-        info "容器已重启：$CONTAINER_NAME"
-        info "如图形界面授权异常，请执行“启动/恢复容器”刷新 Xauthority。"
-    else
-        warn "容器 $CONTAINER_NAME 不存在，将进入启动/恢复流程。"
-        run_script "04_start_container.sh"
-    fi
-}
-
 recreate_container() {
     load_config
     ensure_docker_available
 
-    warn "重建容器会删除旧容器，容器内 pip 安装的包将丢失。"
+    warn "恢复容器会删除旧容器，容器内 pip 安装的包将丢失，随后自动重新安装依赖。"
     if ! ask_yes_no "确认删除并重新创建容器 $CONTAINER_NAME？" "no"; then
-        info "已取消重建。"
+        info "已取消恢复。"
         return 0
     fi
 
@@ -486,31 +502,28 @@ recreate_container() {
     fi
 
     run_script "04_start_container.sh"
+
+    info "开始在容器内重新安装依赖（初始化容器环境）..."
+    init_container_env
 }
 
 container_menu() {
     while true; do
         print_header
-        echo "容器状态管理："
-        echo "  1) 查看容器状态"
-        echo "  2) 启动/恢复容器（刷新图形授权）"
-        echo "  3) 进入容器 shell"
-        echo "  4) 停止容器"
-        echo "  5) 重启容器"
-        echo "  6) 重建容器"
-        echo "  7) 初始化容器环境"
-        echo "  0) 返回主菜单"
+        echo "容器环境管理："
+        echo "  1) 启动容器（默认保留容器数据）"
+        echo "  2) 进入容器"
+        echo "  3) 停止容器"
+        echo "  4) 恢复容器（删除旧容器，重新安装依赖）"
+        echo "  0) 返回上一级"
         echo ""
-        read -rp "输入序号 [0-7]: " choice
+        read -rp "输入序号 [0-4]: " choice
 
         case "$choice" in
-            1) run_menu_action show_container_status ;;
-            2) run_menu_action start_container ;;
-            3) run_menu_action enter_container_shell ;;
-            4) run_menu_action stop_container ;;
-            5) run_menu_action restart_container_instance ;;
-            6) run_menu_action recreate_container ;;
-            7) run_menu_action init_container_env ;;
+            1) run_menu_action start_container ;;
+            2) run_menu_action enter_container_shell ;;
+            3) run_menu_action stop_container ;;
+            4) run_menu_action recreate_container ;;
             0) return 0 ;;
             *) warn "无效输入：$choice"; pause ;;
         esac
@@ -627,20 +640,67 @@ status_report() {
 
 }
 
+conda_menu() {
+    print_header
+    [ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
+    echo "Conda 环境管理："
+    echo ""
+    warn "该功能尚未实现，敬请期待。"
+    warn "（面向宿主机 Web Server 的 conda 环境：${TELEOP_CONDA_ENV:-isaac_teleop_web_server_pico_env}）"
+}
+
+env_setup_menu() {
+    while true; do
+        print_header
+        echo "环境搭建："
+        echo "  1) 首次部署"
+        echo "  2) 路径配置"
+        echo "  0) 返回上一级"
+        echo ""
+        read -rp "输入序号 [0-2]: " choice
+
+        case "$choice" in
+            1) run_menu_action first_deploy ;;
+            2) run_menu_action configure_paths ;;
+            0) return 0 ;;
+            *) warn "无效输入：$choice"; pause ;;
+        esac
+    done
+}
+
+env_manage_menu() {
+    while true; do
+        print_header
+        echo "环境管理："
+        echo "  1) 容器环境管理"
+        echo "  2) Conda 环境管理"
+        echo "  0) 返回上一级"
+        echo ""
+        read -rp "输入序号 [0-2]: " choice
+
+        case "$choice" in
+            1) container_menu ;;
+            2) run_menu_action conda_menu ;;
+            0) return 0 ;;
+            *) warn "无效输入：$choice"; pause ;;
+        esac
+    done
+}
+
 main_menu() {
     while true; do
         print_header
         echo "请选择功能："
-        echo "  1) 首次部署"
-        echo "  2) 容器状态管理"
+        echo "  1) 环境搭建"
+        echo "  2) 环境管理"
         echo "  3) 环境状态查看"
         echo "  0) 退出"
         echo ""
         read -rp "输入序号 [0-3]: " choice
 
         case "$choice" in
-            1) run_menu_action first_deploy ;;
-            2) container_menu ;;
+            1) env_setup_menu ;;
+            2) env_manage_menu ;;
             3) run_menu_action status_report ;;
             0) exit 0 ;;
             *) warn "无效输入：$choice"; pause ;;
@@ -654,10 +714,10 @@ case "$command" in
     help|-h|--help) usage ;;
     check) check_command ;;
     setup|config) setup_config ;;
+    paths|path) configure_paths ;;
     deploy) first_deploy ;;
     container|containers) container_menu ;;
-    restart|start) start_container ;;
-    init) init_container_env ;;
+    start) start_container ;;
     verify|isaac|sim) verify_isaac_env ;;
     status) status_report ;;
     cdi) run_script "02_setup_cdi.sh" ;;
