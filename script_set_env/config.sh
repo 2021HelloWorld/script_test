@@ -3,12 +3,12 @@
 # config.sh — easim Docker 环境统一配置
 # 其他脚本通过 source "$(dirname "$0")/config.sh" 引入
 # 修改配置请运行 setup.sh
-# 上次配置时间：2026-06-30 11:56:06
+# 上次配置时间：2026-07-01 09:55:02
 # =============================================================================
 
 # ---------- 路径配置 ----------
-EASIM_HOST_PATH="/media/sensetime/68bb4571-f355-45f0-a282-3c97df8fc0061/kongxiaoqiang/easim/easim"
-ISAAC_TELEOP_PATH="/media/sensetime/68bb4571-f355-45f0-a282-3c97df8fc0061/kongxiaoqiang/easim/IsaacTeleop/deps/cloudxr/webxr_client"
+EASIM_HOST_PATH="/home/sensetime/Sensetime_ACE/kongxiaoqiang/easim/easim"
+ISAAC_TELEOP_PATH="/home/sensetime/Sensetime_ACE/kongxiaoqiang/easim/IsaacTeleop/deps/cloudxr/webxr_client"
 
 # ---------- Docker 配置 ----------
 CONTAINER_NAME="kxq_easim_container"
