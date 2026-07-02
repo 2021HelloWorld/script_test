@@ -24,9 +24,11 @@ source "$SCRIPT_DIR/lib.sh"
 
 # ---- 参数解析 -------------------------------------------------------------
 VERSION=""
+FORCE=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)  grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -f|--force) FORCE=1; shift ;;
     -*)         die "未知选项：$1" ;;
     *)          [[ -z "$VERSION" ]] && VERSION="$1" || die "多余参数：$1"; shift ;;
   esac
@@ -36,7 +38,14 @@ validate_version "$VERSION"
 validate_controller_env
 
 VDIR="$(version_dir "$VERSION")"
-[[ -e "$VDIR" ]] && die "版本已存在，不可覆盖（版本不可变）：$VDIR"
+if [[ -e "$VDIR" ]]; then
+  if (( FORCE )); then
+    warn "版本已存在，强制覆盖：$VDIR"
+    rm -rf "$VDIR"
+  else
+    die "版本已存在，不可覆盖（版本不可变）：$VDIR（如需覆盖请加 --force）"
+  fi
+fi
 
 # ---- 1~2. commit 与远程校验 ----------------------------------------------
 COMMIT="$(git_current_commit)"

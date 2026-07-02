@@ -367,8 +367,11 @@ _action_create_stable() {
 
   local vdir; vdir="$(version_dir "$_version")"
   if [[ -e "$vdir" ]]; then
-    err "版本已存在，不可覆盖：$vdir"
-    return 1
+    warn "版本 $_version 已存在：$vdir"
+    _confirm "是否强制覆盖？" || { log "已取消"; return 0; }
+    _FORCE_CREATE=1
+  else
+    _FORCE_CREATE=0
   fi
 
   # 确认页
@@ -385,7 +388,9 @@ _action_create_stable() {
   _confirm "确认执行创建？" || { log "已取消"; return 0; }
 
   echo
-  bash "$SCRIPT_DIR/create_stable.sh" "$_version"
+  local _force_arg=()
+  (( _FORCE_CREATE )) && _force_arg=( --force )
+  bash "$SCRIPT_DIR/create_stable.sh" "${_force_arg[@]}" "$_version"
 }
 
 # 部署版本到生产机（发布新版本 / 回退旧版本，同一套逻辑）
