@@ -81,9 +81,3 @@ SSH_OPTS=(
   -o "ConnectTimeout=${SSH_CONNECT_TIMEOUT}"
   -o StrictHostKeyChecking=accept-new
 )
-
-# ---------------------------------------------------------------------------
-# HEALTHCHECK_ENABLED：健康检查开关（功能待定，默认关闭）。
-#   置 1 后调用 healthcheck_remote()（见 lib.sh，目前为占位钩子）。
-# ---------------------------------------------------------------------------
-: "${HEALTHCHECK_ENABLED:=0}"

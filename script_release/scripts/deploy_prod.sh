@@ -6,7 +6,7 @@
 #
 # 对 prod_hosts.txt 中每台生产机：
 #   git fetch + checkout <commit> -> 逐个 rsync 资产 -> 同步并校验 sha256
-#   -> 健康检查 -> 写 current_version.txt
+#   -> 写 current_version.txt
 # 单台失败不影响其它机器；失败机器不写版本号。退出码=失败台数。
 
 set -euo pipefail

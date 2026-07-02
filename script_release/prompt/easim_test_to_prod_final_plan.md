@@ -265,7 +265,6 @@ pc03 192.168.1.103 deploy
 7. 同步 ignored_assets.sha256 到生产机 code 目录。
 8. 通过 SSH 命令生产机执行 sha256 校验。
 9. 校验通过后写入 current_version.txt。
-10. 执行生产机健康检查（功能待定，见第 12 节）。
 ```
 
 核心命令逻辑（`$asset` 为 manifest 中 `ignored_assets.paths` 的每一项）：
@@ -310,7 +309,6 @@ ssh deploy@prod "cd $PROD_CODE && sha256sum -c ignored_assets.sha256"
 5. 同步 2.0.0 的 ignored_assets.sha256。
 6. 生产机本地执行 sha256 校验。
 7. 校验通过后写入 current_version.txt。
-8. 执行健康检查（功能待定）。
 ```
 
 注意：

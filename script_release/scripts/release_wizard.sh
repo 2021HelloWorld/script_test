@@ -458,12 +458,11 @@ _action_config() {
     printf '  %-22s %s\n' "5. GIT_REMOTE:"     "$GIT_REMOTE"
     printf '  %-22s %s\n' "6. ASSET_PATHS:"    "${ASSET_PATHS[*]}"
     printf '  %-22s %s\n' "7. SSH 超时(秒):"  "${SSH_CONNECT_TIMEOUT:-10}"
-    printf '  %-22s %s\n' "8. 健康检查开关:"  "${HEALTHCHECK_ENABLED:-0}"
-    printf '  %-22s %s\n' "9. RSYNC_EXCLUDES:" "${RSYNC_EXCLUDES[*]}"
+    printf '  %-22s %s\n' "8. RSYNC_EXCLUDES:" "${RSYNC_EXCLUDES[*]}"
     printf '\n  %s\n' "0. 返回主菜单"
     echo
 
-    _prompt "请选择要修改的配置项 [0-9]：" _item
+    _prompt "请选择要修改的配置项 [0-8]：" _item
 
     case "${_item:-}" in
       1)
@@ -566,17 +565,6 @@ _action_config() {
         ok "SSH_CONNECT_TIMEOUT 已更新 -> $_val"
         ;;
       8)
-        local _new_val
-        if [[ "${HEALTHCHECK_ENABLED:-0}" == "1" ]]; then
-          _new_val="0"
-        else
-          _new_val="1"
-        fi
-        sed -i "s|^: \"\${HEALTHCHECK_ENABLED:=.*\"\$|: \"\${HEALTHCHECK_ENABLED:=$_new_val}\"|" "$_conf"
-        HEALTHCHECK_ENABLED="$_new_val"
-        ok "HEALTHCHECK_ENABLED 已切换 -> $_new_val"
-        ;;
-      9)
         _section "编辑 RSYNC_EXCLUDES"
         echo
         log "当前排除项："

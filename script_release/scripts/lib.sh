@@ -2,7 +2,7 @@
 # lib.sh —— EASIM 发布/回退方案公共函数库
 #
 # 被各脚本 source。提供：日志、依赖/配置校验、manifest 读写、
-# 生产机清单解析、远程 git/资产同步/校验、健康检查占位钩子。
+# 生产机清单解析、远程 git/资产同步/校验。
 #
 # 约定：所有函数不调用 exit（除 die），由调用方决定流程；
 #       需要中断的致命错误统一走 die。
@@ -233,15 +233,6 @@ remote_write_version() {
   ssh_run "$user" "$host" "printf '%s\n' '$version' > '$code/current_version.txt'"
 }
 
-# 健康检查占位钩子（功能待定）。参数：user host
-# HEALTHCHECK_ENABLED=1 时才执行；当前仅作演示，恒返回成功。
-healthcheck_remote() {
-  local user="$1" host="$2"
-  [[ "${HEALTHCHECK_ENABLED:-0}" == "1" ]] || { return 0; }
-  # TODO: 待定——接入 EASIM 生产机的进程/容器检查。
-  ssh_run "$user" "$host" "true"
-}
-
 # ---- 部署编排（deploy 与 rollback 共用） ----------------------------------
 #
 # 把指定版本部署到 prod_hosts.txt 中的所有生产机。
@@ -306,7 +297,6 @@ deploy_version_to_host() {
 
   sync_checksum "$vdir" "$user" "$host" "$code"   || { err "校验清单同步失败"; return 1; }
   remote_verify_checksum "$user" "$host" "$code"  || { err "sha256 校验未通过"; return 1; }
-  healthcheck_remote "$user" "$host"              || { err "健康检查未通过"; return 1; }
 
   # 全部通过后才写版本号
   remote_write_version "$user" "$host" "$version" "$code" \

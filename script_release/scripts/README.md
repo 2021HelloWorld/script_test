@@ -45,7 +45,6 @@ $EDITOR "$STABLE_ROOT/prod_hosts.txt"
 | `PROD_CODE` | 生产机默认 code 目录。 |
 | `PROD_HOSTS_FILE` | 生产机清单文件路径。 |
 | `ASSET_PATHS` | 纳入快照的资产相对路径列表（相对 `CODE_DIR`，可多项）。 |
-| `HEALTHCHECK_ENABLED` | 是否启用发布后健康检查（当前为占位钩子，默认关闭）。 |
 
 
 ## 生产机清单（prod_hosts.txt）
@@ -79,11 +78,6 @@ pc03 192.168.1.103 deploy            # 留空 → 用全局 PROD_CODE
   未指定的机器回退到全局 `PROD_CODE`。checkout / rsync / 校验 / 写版本号全部按机器路径执行。
 
 
-
-## 健康检查
-
-`HEALTHCHECK_ENABLED=1` 启用。当前 `lib.sh::healthcheck_remote` 为占位钩子（恒成功），
-待确定 EASIM 生产机的进程/容器检查方式后接入。
 
 ## 文件说明
 
