@@ -31,7 +31,7 @@ fi
 #   作为默认值使用：prod_hosts.txt 未给出第四列 code 路径的机器，
 #   将回退到此处。各机器路径不一致时，在 prod_hosts.txt 第四列单独指定。
 # ---------------------------------------------------------------------------
-: "${PROD_CODE:=/home/sensetime/Test_env/easim}"
+: "${PROD_CODE:=/media/sensetime/68bb4571-f355-45f0-a282-3c97df8fc006/fuxindong/easim}"
 
 # ---------------------------------------------------------------------------
 # PROD_HOSTS_FILE：生产机清单文件。每行 “机器名 IP SSH用户 [code路径]”，
@@ -59,6 +59,7 @@ else
     # 未来新增/改名直接增改本数组，例如：
     # "assets/environment/Office_11F_Room02"
     "assets/environment/Office_10F_Room01"
+    "assets/robot"
   )
 fi
 
