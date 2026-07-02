@@ -123,22 +123,21 @@ _show_version_list() {
     return 1
   fi
   _section "可用稳定版本"
-  printf '  %-4s %-16s %-8s %-24s %s\n' "编号" "版本号" "类型" "创建时间" "Commit"
+  printf '  %-4s %-16s %-24s %s\n' "编号" "版本号" "创建时间" "Commit"
 
   local i=0
   local v
   for v in "${_VER_LIST[@]}"; do
     local vdir="$STABLE_ROOT/$v"
     local mf="$vdir/manifest.yaml"
-    local vtype created commit
+    local created commit
     if [[ -f "$mf" ]]; then
-      vtype="$(manifest_field "$mf" type)"
       created="$(manifest_field "$mf" created_at)"
       commit="$(manifest_commit "$mf" | cut -c1-8)"
     else
-      vtype="-"; created="-"; commit="-"
+      created="-"; commit="-"
     fi
-    printf '  %-4s %-16s %-8s %-24s %s\n' "$((i+1))." "$v" "$vtype" "$created" "$commit"
+    printf '  %-4s %-16s %-24s %s\n' "$((i+1))." "$v" "$created" "$commit"
     i=$((i+1))
   done
 }
@@ -316,46 +315,9 @@ _action_create_stable() {
     return 1
   fi
 
-  # 版本类型
-  echo
-  printf '  版本类型：\n'
-  printf '  1. full（完整版本）\n'
-  printf '  2. patch（补丁版本）\n\n'
-  _prompt "请选择 [1/2，默认 1]：" _type_choice
-  local _vtype _based_on="none"
-  case "${_type_choice:-1}" in
-    2)
-      _vtype="patch"
-      _load_version_list
-      if (( ${#_VER_LIST[@]} > 0 )); then
-        echo
-        _show_version_list
-        echo
-        _prompt "请输入 based-on 版本号（或从上方选编号）：" _based_input
-        if [[ "$_based_input" =~ ^[0-9]+$ ]]; then
-          local _bidx=$(( _based_input - 1 ))
-          if (( _bidx >= 0 && _bidx < ${#_VER_LIST[@]} )); then
-            _based_on="${_VER_LIST[$_bidx]}"
-          else
-            err "编号超出范围"; return 1
-          fi
-        else
-          _based_on="${_based_input:-none}"
-        fi
-      else
-        _prompt "请输入 based-on 版本号：" _based_on
-      fi
-      ;;
-    *)
-      _vtype="full"
-      ;;
-  esac
-
   # 确认页
   _section "确认创建"
   printf '  %-16s %s\n' "版本号:"    "$_version"
-  printf '  %-16s %s\n' "类型:"      "$_vtype"
-  printf '  %-16s %s\n' "基于版本:"  "$_based_on"
   printf '  %-16s %s\n' "commit:"    "${commit:0:8}"
   printf '  %-16s %s\n' "分支:"      "$branch"
   printf '  %-16s\n'    "资产:"
@@ -367,9 +329,7 @@ _action_create_stable() {
   _confirm "确认执行创建？" || { log "已取消"; return 0; }
 
   echo
-  local _args=("$_version" "--type" "$_vtype")
-  [[ "$_based_on" != "none" ]] && _args+=("--based-on" "$_based_on")
-  bash "$SCRIPT_DIR/create_stable.sh" "${_args[@]}"
+  bash "$SCRIPT_DIR/create_stable.sh" "$_version"
 }
 
 # 3. 发布稳定版本到生产机
@@ -387,10 +347,9 @@ _action_deploy() {
   [[ -f "$mf"   ]] || { err "缺少 manifest：$mf";    return 1; }
 
   # 读 manifest 信息
-  local commit branch vtype assets_list
+  local commit branch assets_list
   commit="$(manifest_commit "$mf")"
   branch="$(manifest_field  "$mf" branch 2>/dev/null || echo -)"
-  vtype="$(manifest_field   "$mf" type)"
   assets_list="$(manifest_paths "$mf")"
 
   # 读生产机列表
@@ -399,7 +358,6 @@ _action_deploy() {
   # 确认页
   _section "发布确认"
   printf '  %-16s %s\n' "目标版本:"  "$_version"
-  printf '  %-16s %s\n' "类型:"      "$vtype"
   printf '  %-16s %s\n' "commit:"    "${commit:0:8}"
   printf '  %-16s %s\n' "分支:"      "$branch"
   printf '  %-16s\n'    "资产路径:"
@@ -434,10 +392,9 @@ _action_rollback() {
   [[ -d "$vdir" ]] || { err "版本目录不存在：$vdir"; return 1; }
   [[ -f "$mf"   ]] || { err "缺少 manifest：$mf";    return 1; }
 
-  local commit branch vtype assets_list
+  local commit branch assets_list
   commit="$(manifest_commit "$mf")"
   branch="$(manifest_field  "$mf" branch 2>/dev/null || echo -)"
-  vtype="$(manifest_field   "$mf" type)"
   assets_list="$(manifest_paths "$mf")"
   load_hosts 2>/dev/null || { err "生产机清单加载失败"; return 1; }
 
@@ -447,7 +404,6 @@ _action_rollback() {
     "$_C_BOLD" "$_C_RED" "$_version" "$_C_RST"
   echo
   printf '  %-16s %s\n' "回退目标:"  "$_version"
-  printf '  %-16s %s\n' "类型:"      "$vtype"
   printf '  %-16s %s\n' "commit:"    "${commit:0:8}"
   printf '  %-16s %s\n' "分支:"      "$branch"
   printf '  %-16s\n'    "资产路径:"

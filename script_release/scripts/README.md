@@ -44,7 +44,6 @@ $EDITOR "$STABLE_ROOT/prod_hosts.txt"
 
 # 1) 测试通过后，在测试机创建稳定版本（commit 须已 push 到远程）
 ./create_stable.sh 2.0.1
-./create_stable.sh 2.0.2 --type patch --based-on 2.0.1
 
 # 2) 发布到所有生产机
 ./deploy_prod.sh 2.0.1

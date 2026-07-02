@@ -92,16 +92,13 @@ git_commit_on_remote() {
 # manifest.yaml 结构固定且简单，故用轻量解析（不依赖 yq）。
 # 写入时保证可被本库的读取函数复原。
 
-# 写 manifest。参数：版本目录 version type based_on commit branch checksum_file
+# 写 manifest。参数：版本目录 version commit branch checksum_file
 # 资产路径列表从全局数组 _MANIFEST_PATHS 读取。
 write_manifest() {
-  local vdir="$1" version="$2" vtype="$3" based_on="$4" \
-        commit="$5" branch="$6" checksum_file="$7"
+  local vdir="$1" version="$2" commit="$3" branch="$4" checksum_file="$5"
   local mf="$vdir/manifest.yaml"
   {
     printf 'version: %s\n' "$version"
-    printf 'type: %s\n' "$vtype"
-    printf 'based_on: %s\n' "$based_on"
     printf '\n'
     printf 'code:\n'
     printf '  commit: %s\n' "$commit"
@@ -120,7 +117,7 @@ write_manifest() {
   } > "$mf"
 }
 
-# 读 manifest 顶层标量字段（version/type/based_on/created_at/test_result）。
+# 读 manifest 顶层标量字段（version/created_at/test_result）。
 manifest_field() {
   local mf="$1" key="$2"
   sed -n "s/^${key}:[[:space:]]*//p" "$mf" | head -n1 \

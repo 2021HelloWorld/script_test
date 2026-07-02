@@ -163,8 +163,6 @@
 
 ```yaml
 version: 2.0.1
-type: patch
-based_on: 2.0.0
 
 code:
   commit: 1f23a85c
@@ -182,8 +180,6 @@ test_result: passed
 关键字段：
 
 - `version`：稳定版本号。
-- `type`：版本类型，例如 `full` 或 `patch`。
-- `based_on`：小版本补丁基于哪个旧版本。
 - `code.commit`：该版本对应的 Git commit。
 - `ignored_assets.paths`：该版本**实际锁定**的资产路径列表，可以有多项。
 - `ignored_assets.checksum_file`：资产校验文件。
