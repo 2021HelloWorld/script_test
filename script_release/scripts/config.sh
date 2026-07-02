@@ -12,9 +12,11 @@
 
 # ---------------------------------------------------------------------------
 # CODE_DIR：测试机 code 目录（easim 仓库根）。
-#   未显式设置时自动探测当前 git 仓库根，换机器/换克隆位置都能适配。
+#   优先使用显式设置（可通过 release_wizard 菜单 7 修改），
+#   显式设置为空时自动探测当前 git 仓库根。
 #   探测失败（不在 git 仓库内）时回退为空，由 lib.sh 报错提示。
 # ---------------------------------------------------------------------------
+: "${CODE_DIR:=/home/sensetime/Sensetime_ACE/kongxiaoqiang/easim/easim}"
 if [[ -z "${CODE_DIR:-}" ]]; then
   CODE_DIR="$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null || true)"
 fi
@@ -22,12 +24,12 @@ fi
 # ---------------------------------------------------------------------------
 # STABLE_ROOT：测试机上的稳定版本备份库。单版本约 12G，确保磁盘充足。
 # ---------------------------------------------------------------------------
-: "${STABLE_ROOT:=/data/easim_stable}"
+: "${STABLE_ROOT:=/home/sensetime/Sensetime_ACE/kongxiaoqiang/easim/easim_stable}"
 
 # ---------------------------------------------------------------------------
 # PROD_CODE：生产机上的 code 运行目录（git checkout + 资产同步的目标）。
 # ---------------------------------------------------------------------------
-: "${PROD_CODE:=/data/easim_runtime/code}"
+: "${PROD_CODE:=/home/sensetime/Test_env/easim}"
 
 # ---------------------------------------------------------------------------
 # PROD_HOSTS_FILE：生产机清单文件。每行 “机器名 IP SSH用户”，# 开头为注释。
@@ -51,9 +53,9 @@ if [[ -n "${ASSET_PATHS_OVERRIDE:-}" ]]; then
   ASSET_PATHS=( ${ASSET_PATHS_OVERRIDE} )
 else
   ASSET_PATHS=(
-    "assets/environment/Office_10F_Room01"
     # 未来新增/改名直接增改本数组，例如：
     # "assets/environment/Office_11F_Room02"
+    "assets/environment/Office_10F_Room01"
   )
 fi
 
