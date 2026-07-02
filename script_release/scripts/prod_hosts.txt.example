@@ -1,8 +1,11 @@
 # 生产机清单。复制为 prod_hosts.txt 后按实际填写。
-# 每行格式： 机器名 IP SSH用户
+# 每行格式： 机器名 IP SSH用户 [code路径]
+# 第四列 code 路径可选：
+#   - 填写时使用该机器专属的 code 目录（各机器可不一致）。
+#   - 留空则回退到 config.sh 中的全局 PROD_CODE。
 # 以 # 开头的行与空行将被忽略。
 # 测试机需能对这些机器 SSH 免密登录（BatchMode）。
 
-pc01 192.168.1.101 deploy
-pc02 192.168.1.102 deploy
+pc01 192.168.1.101 deploy /home/sensetime/Test_env/easim
+pc02 192.168.1.102 deploy /data/easim_runtime/code
 pc03 192.168.1.103 deploy

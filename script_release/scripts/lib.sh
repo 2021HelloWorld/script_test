@@ -161,18 +161,21 @@ load_manifest_paths() {
 
 # ---- 生产机清单解析 -------------------------------------------------------
 #
-# prod_hosts.txt 每行：机器名 IP SSH用户  （# 开头与空行忽略）
-# 解析结果写入并行数组 HOST_NAMES / HOST_IPS / HOST_USERS。
+# prod_hosts.txt 每行：机器名 IP SSH用户 [code路径]  （# 开头与空行忽略）
+# 第四列 code 路径可选：留空则回退到全局 PROD_CODE，从而允许各机器路径不一致。
+# 解析结果写入并行数组 HOST_NAMES / HOST_IPS / HOST_USERS / HOST_CODES。
 
 load_hosts() {
-  HOST_NAMES=(); HOST_IPS=(); HOST_USERS=()
+  HOST_NAMES=(); HOST_IPS=(); HOST_USERS=(); HOST_CODES=()
   [[ -f "$PROD_HOSTS_FILE" ]] || die "找不到生产机清单：$PROD_HOSTS_FILE"
-  local name ip user
-  while read -r name ip user _; do
+  local name ip user code
+  while read -r name ip user code; do
     [[ -z "${name:-}" || "${name:0:1}" == "#" ]] && continue
     [[ -n "${ip:-}" && -n "${user:-}" ]] \
-      || die "prod_hosts.txt 行格式错误（需 '机器名 IP 用户'）：$name ${ip:-} ${user:-}"
+      || die "prod_hosts.txt 行格式错误（需 '机器名 IP 用户 [code路径]'）：$name ${ip:-} ${user:-}"
     HOST_NAMES+=("$name"); HOST_IPS+=("$ip"); HOST_USERS+=("$user")
+    # 第四列留空时回退到全局 PROD_CODE
+    HOST_CODES+=("${code:-$PROD_CODE}")
   done < "$PROD_HOSTS_FILE"
   (( ${#HOST_NAMES[@]} > 0 )) || die "生产机清单为空：$PROD_HOSTS_FILE"
 }
@@ -191,43 +194,43 @@ ssh_check() {
   ssh "${SSH_OPTS[@]}" "${user}@${host}" "true" >/dev/null 2>&1
 }
 
-# 远程 git fetch + checkout 到指定 commit。参数：user host commit
+# 远程 git fetch + checkout 到指定 commit。参数：user host commit code
 remote_checkout() {
-  local user="$1" host="$2" commit="$3"
+  local user="$1" host="$2" commit="$3" code="$4"
   ssh_run "$user" "$host" \
-    "cd '$PROD_CODE' && git fetch --all --quiet && git checkout --quiet '$commit'"
+    "cd '$code' && git fetch --all --quiet && git checkout --quiet '$commit'"
 }
 
 # 把单个资产目录从快照同步到生产机对应路径。
-# 参数：snapshot_assets_root user host asset_rel
+# 参数：snapshot_assets_root user host asset_rel code
 sync_one_asset() {
-  local snap_root="$1" user="$2" host="$3" asset="$4"
+  local snap_root="$1" user="$2" host="$3" asset="$4" code="$5"
   local src="$snap_root/$asset/"
-  local dst="${user}@${host}:$PROD_CODE/$asset/"
+  local dst="${user}@${host}:$code/$asset/"
   [[ -d "$src" ]] || die "快照中缺少资产目录：$src"
   # 先确保远端目标父目录存在
-  ssh_run "$user" "$host" "mkdir -p '$PROD_CODE/$asset'"
+  ssh_run "$user" "$host" "mkdir -p '$code/$asset'"
   # --delete 仅在该资产子目录内部生效，不波及生产机其它文件
   rsync -a --delete "$src" "$dst"
 }
 
-# 同步 sha256 清单到生产机 code 根。参数：version_dir user host
+# 同步 sha256 清单到生产机 code 根。参数：version_dir user host code
 sync_checksum() {
-  local vdir="$1" user="$2" host="$3"
+  local vdir="$1" user="$2" host="$3" code="$4"
   rsync -a "$vdir/ignored_assets.sha256" \
-    "${user}@${host}:$PROD_CODE/ignored_assets.sha256"
+    "${user}@${host}:$code/ignored_assets.sha256"
 }
 
-# 远程校验 sha256。参数：user host
+# 远程校验 sha256。参数：user host code
 remote_verify_checksum() {
-  local user="$1" host="$2"
-  ssh_run "$user" "$host" "cd '$PROD_CODE' && sha256sum -c --quiet ignored_assets.sha256"
+  local user="$1" host="$2" code="$3"
+  ssh_run "$user" "$host" "cd '$code' && sha256sum -c --quiet ignored_assets.sha256"
 }
 
-# 远程写入 current_version.txt。参数：user host version
+# 远程写入 current_version.txt。参数：user host version code
 remote_write_version() {
-  local user="$1" host="$2" version="$3"
-  ssh_run "$user" "$host" "printf '%s\n' '$version' > '$PROD_CODE/current_version.txt'"
+  local user="$1" host="$2" version="$3" code="$4"
+  ssh_run "$user" "$host" "printf '%s\n' '$version' > '$code/current_version.txt'"
 }
 
 # 健康检查占位钩子（功能待定）。参数：user host
@@ -264,10 +267,10 @@ deploy_version_to_all() {
 
   local fail=0 i
   for i in "${!HOST_NAMES[@]}"; do
-    local name="${HOST_NAMES[$i]}" ip="${HOST_IPS[$i]}" user="${HOST_USERS[$i]}"
-    log "---- [$name $ip] 开始${label} ----"
+    local name="${HOST_NAMES[$i]}" ip="${HOST_IPS[$i]}" user="${HOST_USERS[$i]}" code="${HOST_CODES[$i]}"
+    log "---- [$name $ip] 开始${label}（code=$code） ----"
 
-    if deploy_version_to_host "$vdir" "$commit" "$user" "$ip" "$version"; then
+    if deploy_version_to_host "$vdir" "$commit" "$user" "$ip" "$version" "$code"; then
       ok "[$name] ${label}成功 -> $version"
     else
       err "[$name] ${label}失败（保留现状，未写入 current_version.txt）"
@@ -285,28 +288,28 @@ deploy_version_to_all() {
 }
 
 # 把指定版本部署到单台生产机（任一步失败即返回非 0，且不写版本号）。
-# 参数：version_dir commit user host version
+# 参数：version_dir commit user host version code
 deploy_version_to_host() {
-  local vdir="$1" commit="$2" user="$3" host="$4" version="$5"
+  local vdir="$1" commit="$2" user="$3" host="$4" version="$5" code="$6"
   local snap_root="$vdir/ignored_assets"
 
   ssh_check "$user" "$host"            || { err "SSH 不可达：$user@$host"; return 1; }
-  remote_checkout "$user" "$host" "$commit" \
+  remote_checkout "$user" "$host" "$commit" "$code" \
     || { err "git checkout 失败：$commit"; return 1; }
 
   local asset
   for asset in "${MANIFEST_PATHS[@]}"; do
     log "  同步资产：$asset"
-    sync_one_asset "$snap_root" "$user" "$host" "$asset" \
+    sync_one_asset "$snap_root" "$user" "$host" "$asset" "$code" \
       || { err "资产同步失败：$asset"; return 1; }
   done
 
-  sync_checksum "$vdir" "$user" "$host"   || { err "校验清单同步失败"; return 1; }
-  remote_verify_checksum "$user" "$host"  || { err "sha256 校验未通过"; return 1; }
-  healthcheck_remote "$user" "$host"      || { err "健康检查未通过"; return 1; }
+  sync_checksum "$vdir" "$user" "$host" "$code"   || { err "校验清单同步失败"; return 1; }
+  remote_verify_checksum "$user" "$host" "$code"  || { err "sha256 校验未通过"; return 1; }
+  healthcheck_remote "$user" "$host"              || { err "健康检查未通过"; return 1; }
 
   # 全部通过后才写版本号
-  remote_write_version "$user" "$host" "$version" \
+  remote_write_version "$user" "$host" "$version" "$code" \
     || { err "写入 current_version.txt 失败"; return 1; }
   return 0
 }

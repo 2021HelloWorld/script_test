@@ -27,7 +27,7 @@ printf '%-8s %-8s %-18s %-12s %-10s %-7s\n' \
   HOST STATUS VERSION COMMIT ASSETS DISK
 
 for i in "${!HOST_NAMES[@]}"; do
-  name="${HOST_NAMES[$i]}"; ip="${HOST_IPS[$i]}"; user="${HOST_USERS[$i]}"
+  name="${HOST_NAMES[$i]}"; ip="${HOST_IPS[$i]}"; user="${HOST_USERS[$i]}"; code="${HOST_CODES[$i]}"
 
   if ! ssh_check "$user" "$ip"; then
     printf '%-8s %-8s %-18s %-12s %-10s %-7s\n' \
@@ -37,7 +37,7 @@ for i in "${!HOST_NAMES[@]}"; do
 
   # 一次 SSH 取回多项信息，减少往返。各项缺失时给占位符。
   remote_out="$(ssh_run "$user" "$ip" "
-    cd '$PROD_CODE' 2>/dev/null || { echo 'NO_CODE_DIR'; exit 0; }
+    cd '$code' 2>/dev/null || { echo 'NO_CODE_DIR'; exit 0; }
     ver=\$(cat current_version.txt 2>/dev/null || echo unknown)
     commit=\$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
     if [ -f ignored_assets.sha256 ]; then

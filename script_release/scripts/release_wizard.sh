@@ -367,8 +367,8 @@ _action_deploy() {
   printf '  %-16s\n'    "生产机:"
   local i
   for i in "${!HOST_NAMES[@]}"; do
-    printf '    - %s %s (%s)\n' \
-      "${HOST_NAMES[$i]}" "${HOST_IPS[$i]}" "${HOST_USERS[$i]}"
+    printf '    - %s %s (%s)  code=%s\n' \
+      "${HOST_NAMES[$i]}" "${HOST_IPS[$i]}" "${HOST_USERS[$i]}" "${HOST_CODES[$i]}"
   done
   echo
 
@@ -413,8 +413,8 @@ _action_rollback() {
   printf '  %-16s\n'    "生产机："
   local i
   for i in "${!HOST_NAMES[@]}"; do
-    printf '    - %s %s (%s)\n' \
-      "${HOST_NAMES[$i]}" "${HOST_IPS[$i]}" "${HOST_USERS[$i]}"
+    printf '    - %s %s (%s)  code=%s\n' \
+      "${HOST_NAMES[$i]}" "${HOST_IPS[$i]}" "${HOST_USERS[$i]}" "${HOST_CODES[$i]}"
   done
   echo
 
