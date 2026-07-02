@@ -112,6 +112,10 @@ ok "已写入 manifest.yaml"
 # ---- 7. 更新索引 ----------------------------------------------------------
 INDEX="$STABLE_ROOT/stable_index.yaml"
 [[ -f "$INDEX" ]] || printf 'versions:\n' > "$INDEX"
+# --force 覆盖时先删除索引中同名旧记录（每条记录占 3 行：- version / commit / created_at）
+if (( FORCE )) && grep -q "^- version: ${VERSION}$" "$INDEX" 2>/dev/null; then
+  sed -i "/^- version: ${VERSION}$/,+2d" "$INDEX"
+fi
 printf -- '- version: %s\n  commit: %s\n  created_at: "%s"\n' \
   "$VERSION" "$COMMIT" "$(date '+%Y-%m-%d %H:%M:%S')" >> "$INDEX"
 
