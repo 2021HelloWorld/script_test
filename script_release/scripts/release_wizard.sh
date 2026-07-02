@@ -224,9 +224,9 @@ _run_prechecks() {
 
 # ---- 菜单动作实现 -----------------------------------------------------------
 
-# 1. 首次初始化生产机清单
+# 修改生产机清单
 _action_init_hosts() {
-  _section "初始化生产机清单"
+  _section "修改生产机清单"
   if [[ -f "$PROD_HOSTS_FILE" ]]; then
     ok "清单已存在：$PROD_HOSTS_FILE"
     if _confirm "是否重新编辑？"; then
@@ -269,7 +269,7 @@ _action_init_hosts() {
   esac
 }
 
-# 2. 创建稳定版本
+# 创建稳定版本
 _action_create_stable() {
   _section "创建稳定版本 —— 前置检查"
 
@@ -332,7 +332,7 @@ _action_create_stable() {
   bash "$SCRIPT_DIR/create_stable.sh" "$_version"
 }
 
-# 3. 发布稳定版本到生产机
+# 发布稳定版本到生产机
 _action_deploy() {
   _section "发布稳定版本到生产机"
   _load_version_list
@@ -378,7 +378,7 @@ _action_deploy() {
   bash "$SCRIPT_DIR/deploy_prod.sh" "$_version"
 }
 
-# 4. 回退到历史版本
+# 回退到历史版本
 _action_rollback() {
   _section "回退到历史版本"
   _load_version_list
@@ -433,19 +433,19 @@ _action_rollback() {
   bash "$SCRIPT_DIR/rollback_prod.sh" "$_version"
 }
 
-# 5. 查看生产机状态
+# 查看生产机状态
 _action_status() {
   _section "生产机状态巡检"
   echo
   bash "$SCRIPT_DIR/status_prod.sh"
 }
 
-# 6. 检查前置条件
+# 检查前置条件
 _action_precheck() {
   _run_prechecks || true
 }
 
-# 7. 修改配置
+# 修改配置
 _action_config() {
   local _conf="$SCRIPT_DIR/config.sh"
 
@@ -616,6 +616,31 @@ _action_config() {
   done
 }
 
+# ---- 管理工具子菜单 ---------------------------------------------------------
+
+_manage_menu() {
+  while true; do
+    _section "管理工具"
+    printf '  1. 修改生产机清单\n'
+    printf '  2. 查看生产机状态\n'
+    printf '  3. 检查本机/生产机前置条件\n'
+    printf '\n  0. 返回主菜单\n\n'
+
+    _prompt "请输入选项 [0-3]：" _mchoice
+
+    case "${_mchoice:-}" in
+      1) _action_init_hosts ;;
+      2) _action_status     ;;
+      3) _action_precheck   ;;
+      0|q|Q|"") return ;;
+      *) warn "无效选项：$_mchoice" ;;
+    esac
+
+    echo
+    _pause "操作完成。"
+  done
+}
+
 # ---- 主菜单循环 -------------------------------------------------------------
 
 _main() {
@@ -624,25 +649,21 @@ _main() {
     _show_env
 
     printf '%s请选择操作：%s\n\n' "$_C_BOLD" "$_C_RST"
-    printf '  1. 首次初始化生产机清单\n'
+    printf '  1. 修改配置路径\n'
     printf '  2. 创建稳定版本\n'
     printf '  3. 发布稳定版本到生产机\n'
     printf '  4. 回退到历史版本\n'
-    printf '  5. 查看生产机状态\n'
-    printf '  6. 检查本机/生产机前置条件\n'
-    printf '  7. 修改配置路径\n'
+    printf '  5. 管理工具\n'
     printf '  0. 退出\n\n'
 
-    _prompt "请输入选项 [0-7]：" _choice
+    _prompt "请输入选项 [0-5]：" _choice
 
     case "${_choice:-}" in
-      1) _action_init_hosts   ;;
+      1) _action_config       ;;
       2) _action_create_stable ;;
       3) _action_deploy       ;;
       4) _action_rollback     ;;
-      5) _action_status       ;;
-      6) _action_precheck     ;;
-      7) _action_config       ;;
+      5) _manage_menu         ;;
       0|q|Q|exit|quit)
         log "退出引导脚本。"
         exit 0
