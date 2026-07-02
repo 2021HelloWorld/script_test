@@ -165,6 +165,62 @@ _pick_version() {
   fi
 }
 
+# 让用户选择目标生产机，结果写入全局数组 _PICKED_HOSTS（机器名列表）。
+# 留空 = 全部机器（_PICKED_HOSTS 置空）。支持逗号/空格分隔的编号或机器名。
+# 返回 1 表示用户取消。
+_pick_hosts() {
+  _PICKED_HOSTS=()
+  load_hosts 2>/dev/null || { err "生产机清单加载失败"; return 1; }
+
+  _section "选择目标生产机"
+  local i
+  for i in "${!HOST_NAMES[@]}"; do
+    printf '  %2s. %-12s %-16s (%s)  code=%s\n' \
+      "$((i+1))" "${HOST_NAMES[$i]}" "${HOST_IPS[$i]}" "${HOST_USERS[$i]}" "${HOST_CODES[$i]}"
+  done
+  echo
+  printf '  %s直接回车 = 全部机器；或输入编号/机器名（逗号或空格分隔）%s\n' "$_C_DIM" "$_C_RST"
+  echo
+  _prompt "请选择：" _hsel
+
+  # 留空 -> 全部
+  [[ -z "${_hsel// /}" ]] && { log "已选择：全部机器"; return 0; }
+
+  # 逗号统一转空格后逐项解析
+  local tok
+  for tok in ${_hsel//,/ }; do
+    if [[ "$tok" =~ ^[0-9]+$ ]]; then
+      local idx=$(( tok - 1 ))
+      if (( idx >= 0 && idx < ${#HOST_NAMES[@]} )); then
+        _PICKED_HOSTS+=("${HOST_NAMES[$idx]}")
+      else
+        err "编号超出范围：$tok"; _PICKED_HOSTS=(); return 1
+      fi
+    else
+      # 按机器名或 IP 校验存在
+      local found=0 j
+      for j in "${!HOST_NAMES[@]}"; do
+        if [[ "${HOST_NAMES[$j]}" == "$tok" || "${HOST_IPS[$j]}" == "$tok" ]]; then
+          _PICKED_HOSTS+=("${HOST_NAMES[$j]}"); found=1; break
+        fi
+      done
+      (( found == 0 )) && { err "清单中无此机器：$tok"; _PICKED_HOSTS=(); return 1; }
+    fi
+  done
+  log "已选择：${_PICKED_HOSTS[*]}"
+}
+
+# 判断某机器名是否在本次所选目标内（_PICKED_HOSTS 为空视为全选）。
+_host_selected() {
+  local name="$1"
+  (( ${#_PICKED_HOSTS[@]} == 0 )) && return 0
+  local h
+  for h in "${_PICKED_HOSTS[@]}"; do
+    [[ "$h" == "$name" ]] && return 0
+  done
+  return 1
+}
+
 # ---- 前置条件检查 -----------------------------------------------------------
 
 # 检查单项，成功打 ok，失败打 warn/err，返回失败数
@@ -332,9 +388,9 @@ _action_create_stable() {
   bash "$SCRIPT_DIR/create_stable.sh" "$_version"
 }
 
-# 发布稳定版本到生产机
+# 部署版本到生产机（发布新版本 / 回退旧版本，同一套逻辑）
 _action_deploy() {
-  _section "发布稳定版本到生产机"
+  _section "部署版本到生产机"
   _load_version_list
 
   local _version
@@ -352,11 +408,14 @@ _action_deploy() {
   branch="$(manifest_field  "$mf" branch 2>/dev/null || echo -)"
   assets_list="$(manifest_paths "$mf")"
 
-  # 读生产机列表
+  # 选择目标生产机（留空=全部），结果在 _PICKED_HOSTS
+  _pick_hosts || { log "已取消"; return 0; }
+
+  # 读生产机列表用于确认展示；按所选目标过滤
   load_hosts 2>/dev/null || { err "生产机清单加载失败"; return 1; }
 
   # 确认页
-  _section "发布确认"
+  _section "部署确认"
   printf '  %-16s %s\n' "目标版本:"  "$_version"
   printf '  %-16s %s\n' "commit:"    "${commit:0:8}"
   printf '  %-16s %s\n' "分支:"      "$branch"
@@ -364,73 +423,23 @@ _action_deploy() {
   while IFS= read -r _ap; do
     [[ -n "$_ap" ]] && printf '    - %s\n' "$_ap"
   done <<< "$assets_list"
-  printf '  %-16s\n'    "生产机:"
-  local i
-  for i in "${!HOST_NAMES[@]}"; do
-    printf '    - %s %s (%s)  code=%s\n' \
-      "${HOST_NAMES[$i]}" "${HOST_IPS[$i]}" "${HOST_USERS[$i]}" "${HOST_CODES[$i]}"
-  done
-  echo
-
-  _confirm "确认发布到以上生产机？" || { log "已取消"; return 0; }
-
-  echo
-  bash "$SCRIPT_DIR/deploy_prod.sh" "$_version"
-}
-
-# 回退到历史版本
-_action_rollback() {
-  _section "回退到历史版本"
-  _load_version_list
-
-  local _version
-  _pick_version _version || { log "已取消"; return 0; }
-  [[ -z "$_version" ]] && { log "已取消"; return 0; }
-
-  local vdir; vdir="$(version_dir "$_version")"
-  local mf="$vdir/manifest.yaml"
-  [[ -d "$vdir" ]] || { err "版本目录不存在：$vdir"; return 1; }
-  [[ -f "$mf"   ]] || { err "缺少 manifest：$mf";    return 1; }
-
-  local commit branch assets_list
-  commit="$(manifest_commit "$mf")"
-  branch="$(manifest_field  "$mf" branch 2>/dev/null || echo -)"
-  assets_list="$(manifest_paths "$mf")"
-  load_hosts 2>/dev/null || { err "生产机清单加载失败"; return 1; }
-
-  # 回退确认页（更醒目的警告）
-  _section "⚠  回退确认"
-  printf '  %s%s警告：即将把所有生产机回退到历史版本 %s%s\n' \
-    "$_C_BOLD" "$_C_RED" "$_version" "$_C_RST"
-  echo
-  printf '  %-16s %s\n' "回退目标:"  "$_version"
-  printf '  %-16s %s\n' "commit:"    "${commit:0:8}"
-  printf '  %-16s %s\n' "分支:"      "$branch"
-  printf '  %-16s\n'    "资产路径:"
-  while IFS= read -r _ap; do
-    [[ -n "$_ap" ]] && printf '    - %s\n' "$_ap"
-  done <<< "$assets_list"
-  printf '  %-16s\n'    "生产机："
-  local i
-  for i in "${!HOST_NAMES[@]}"; do
-    printf '    - %s %s (%s)  code=%s\n' \
-      "${HOST_NAMES[$i]}" "${HOST_IPS[$i]}" "${HOST_USERS[$i]}" "${HOST_CODES[$i]}"
-  done
-  echo
-
-  # 二次确认：要求重新输入版本号
-  local _confirm_ver
-  printf '%s请重新输入版本号以二次确认（降低误操作风险）：%s ' \
-    "${_C_BOLD}${_C_YEL}" "$_C_RST" >&2
-  read -r _confirm_ver
-
-  if [[ "$_confirm_ver" != "$_version" ]]; then
-    err "版本号不一致，回退已取消"
-    return 1
+  if (( ${#_PICKED_HOSTS[@]} > 0 )); then
+    printf '  %-16s %s\n' "生产机:" "（指定 ${#_PICKED_HOSTS[@]} 台）"
+  else
+    printf '  %-16s %s\n' "生产机:" "（全部）"
   fi
+  local i
+  for i in "${!HOST_NAMES[@]}"; do
+    _host_selected "${HOST_NAMES[$i]}" || continue
+    printf '    - %s %s (%s)  code=%s\n' \
+      "${HOST_NAMES[$i]}" "${HOST_IPS[$i]}" "${HOST_USERS[$i]}" "${HOST_CODES[$i]}"
+  done
+  echo
+
+  _confirm "确认部署到以上生产机？" || { log "已取消"; return 0; }
 
   echo
-  bash "$SCRIPT_DIR/rollback_prod.sh" "$_version"
+  bash "$SCRIPT_DIR/deploy_prod.sh" "$_version" "${_PICKED_HOSTS[@]}"
 }
 
 # 查看生产机状态
@@ -459,10 +468,14 @@ _action_config() {
     printf '  %-22s %s\n' "6. ASSET_PATHS:"    "${ASSET_PATHS[*]}"
     printf '  %-22s %s\n' "7. SSH 超时(秒):"  "${SSH_CONNECT_TIMEOUT:-10}"
     printf '  %-22s %s\n' "8. RSYNC_EXCLUDES:" "${RSYNC_EXCLUDES[*]}"
+    printf '  %-22s %s\n' "9. 并发台数:"      "${MAX_PARALLEL:-4}"
+    printf '  %-22s %s\n' "10. 重试次数:"     "${RETRY_ATTEMPTS:-3}"
+    printf '  %-22s %s\n' "11. 重试退避基数(秒):" "${RETRY_BASE_DELAY:-5}"
+    printf '  %-22s %s\n' "12. rsync 超时(秒):" "${RSYNC_TIMEOUT:-120}"
     printf '\n  %s\n' "0. 返回主菜单"
     echo
 
-    _prompt "请选择要修改的配置项 [0-8]：" _item
+    _prompt "请选择要修改的配置项 [0-12]：" _item
 
     case "${_item:-}" in
       1)
@@ -607,6 +620,39 @@ _action_config() {
           *) warn "无效选项" ;;
         esac
         ;;
+      9)
+        _prompt "新的并发台数 MAX_PARALLEL（当前 ${MAX_PARALLEL:-4}）：" _val
+        [[ -z "$_val" ]] && { log "已取消"; continue; }
+        [[ "$_val" =~ ^[1-9][0-9]*$ ]] || { err "需为正整数"; continue; }
+        sed -i "s|^: \"\${MAX_PARALLEL:=.*\"\$|: \"\${MAX_PARALLEL:=$_val}\"|" "$_conf"
+        MAX_PARALLEL="$_val"
+        ok "MAX_PARALLEL 已更新 -> $_val"
+        ;;
+      10)
+        _prompt "新的重试次数 RETRY_ATTEMPTS（当前 ${RETRY_ATTEMPTS:-3}）：" _val
+        [[ -z "$_val" ]] && { log "已取消"; continue; }
+        [[ "$_val" =~ ^[1-9][0-9]*$ ]] || { err "需为正整数"; continue; }
+        sed -i "s|^: \"\${RETRY_ATTEMPTS:=.*\"\$|: \"\${RETRY_ATTEMPTS:=$_val}\"|" "$_conf"
+        RETRY_ATTEMPTS="$_val"
+        ok "RETRY_ATTEMPTS 已更新 -> $_val"
+        ;;
+      11)
+        _prompt "新的重试退避基数秒 RETRY_BASE_DELAY（当前 ${RETRY_BASE_DELAY:-5}）：" _val
+        [[ -z "$_val" ]] && { log "已取消"; continue; }
+        [[ "$_val" =~ ^[0-9]+$ ]] || { err "需为非负整数"; continue; }
+        sed -i "s|^: \"\${RETRY_BASE_DELAY:=.*\"\$|: \"\${RETRY_BASE_DELAY:=$_val}\"|" "$_conf"
+        RETRY_BASE_DELAY="$_val"
+        ok "RETRY_BASE_DELAY 已更新 -> $_val"
+        ;;
+      12)
+        _prompt "新的 rsync 超时秒 RSYNC_TIMEOUT（当前 ${RSYNC_TIMEOUT:-120}）：" _val
+        [[ -z "$_val" ]] && { log "已取消"; continue; }
+        [[ "$_val" =~ ^[1-9][0-9]*$ ]] || { err "需为正整数"; continue; }
+        sed -i "s|^: \"\${RSYNC_TIMEOUT:=.*\"\$|: \"\${RSYNC_TIMEOUT:=$_val}\"|" "$_conf"
+        RSYNC_TIMEOUT="$_val"
+        RSYNC_NET_OPTS=( --partial --timeout="${RSYNC_TIMEOUT}" )
+        ok "RSYNC_TIMEOUT 已更新 -> $_val"
+        ;;
       0|"") break ;;
       *) warn "无效选项：$_item" ;;
     esac
@@ -651,19 +697,17 @@ _main() {
     printf '%s请选择操作：%s\n\n' "$_C_BOLD" "$_C_RST"
     printf '  1. 修改配置路径\n'
     printf '  2. 创建稳定版本\n'
-    printf '  3. 发布稳定版本到生产机\n'
-    printf '  4. 回退到历史版本\n'
-    printf '  5. 管理工具\n'
+    printf '  3. 部署版本到生产机（发布 / 回退）\n'
+    printf '  4. 管理工具\n'
     printf '  0. 退出\n\n'
 
-    _prompt "请输入选项 [0-5]：" _choice
+    _prompt "请输入选项 [0-4]：" _choice
 
     case "${_choice:-}" in
       1) _action_config       ;;
       2) _action_create_stable ;;
       3) _action_deploy       ;;
-      4) _action_rollback     ;;
-      5) _manage_menu         ;;
+      4) _manage_menu         ;;
       0|q|Q|exit|quit)
         log "退出引导脚本。"
         exit 0

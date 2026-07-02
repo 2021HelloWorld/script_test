@@ -21,6 +21,36 @@ warn() { printf '%s[WARN]%s %s\n'  "$_C_YEL" "$_C_RST" "$*" >&2; }
 err()  { printf '%s[FAIL]%s %s\n'  "$_C_RED" "$_C_RST" "$*" >&2; }
 die()  { err "$*"; exit 1; }
 
+# ---- 重试 -----------------------------------------------------------------
+#
+# retry <desc> -- cmd args...
+#   把瞬时故障（SSH 抖动、fetch 网络中断、传输挂死）自愈掉：失败即按指数退避
+#   重试，最多 RETRY_ATTEMPTS 次，退避 = RETRY_BASE_DELAY * 2^(n-1) + 随机抖动。
+#   抖动用于打散多台并发主机的重试时刻，避免同步风暴。
+#   注意：确定性故障（如版本号非法）不应走 retry，交由调用方直接判失败。
+retry() {
+  local desc="$1"; shift
+  [[ "${1:-}" == "--" ]] && shift
+  local attempts="${RETRY_ATTEMPTS:-3}"
+  local base="${RETRY_BASE_DELAY:-5}"
+  local n=1
+  while true; do
+    if "$@"; then
+      (( n > 1 )) && ok "重试成功（第 $n 次）：$desc"
+      return 0
+    fi
+    if (( n >= attempts )); then
+      err "已重试 $attempts 次仍失败：$desc"
+      return 1
+    fi
+    local delay=$(( base * (2 ** (n - 1)) + RANDOM % 3 ))
+    warn "失败（第 $n/$attempts 次）：$desc —— ${delay}s 后重试"
+    sleep "$delay"
+    n=$(( n + 1 ))
+  done
+}
+
+
 # ---- 依赖与配置校验 -------------------------------------------------------
 
 # 校验本机所需命令存在。参数为命令列表。
@@ -180,6 +210,45 @@ load_hosts() {
   (( ${#HOST_NAMES[@]} > 0 )) || die "生产机清单为空：$PROD_HOSTS_FILE"
 }
 
+# 按目标选择器裁剪 HOST_* 并行数组，只保留匹配的机器（就地修改）。
+# 选择器从全局数组 DEPLOY_TARGETS 读取，每项可匹配【机器名或 IP】。
+# DEPLOY_TARGETS 为空 -> 不裁剪（全部机器）。
+# 任一选择器匹配不到任何机器 -> die（避免静默漏发）。
+filter_hosts() {
+  (( ${#DEPLOY_TARGETS[@]} == 0 )) && return 0
+
+  # 校验每个选择器都能命中，收集未命中的以便一次性报错
+  local sel miss=()
+  for sel in "${DEPLOY_TARGETS[@]}"; do
+    local hit=0 i
+    for i in "${!HOST_NAMES[@]}"; do
+      if [[ "${HOST_NAMES[$i]}" == "$sel" || "${HOST_IPS[$i]}" == "$sel" ]]; then
+        hit=1; break
+      fi
+    done
+    (( hit == 0 )) && miss+=("$sel")
+  done
+  (( ${#miss[@]} > 0 )) && die "以下目标不在生产机清单中：${miss[*]}"
+
+  # 保留命中的机器，重建并行数组
+  local -a n=() p=() u=() c=()
+  local i
+  for i in "${!HOST_NAMES[@]}"; do
+    local keep=0 sel2
+    for sel2 in "${DEPLOY_TARGETS[@]}"; do
+      if [[ "${HOST_NAMES[$i]}" == "$sel2" || "${HOST_IPS[$i]}" == "$sel2" ]]; then
+        keep=1; break
+      fi
+    done
+    if (( keep )); then
+      n+=("${HOST_NAMES[$i]}"); p+=("${HOST_IPS[$i]}")
+      u+=("${HOST_USERS[$i]}"); c+=("${HOST_CODES[$i]}")
+    fi
+  done
+  HOST_NAMES=("${n[@]}"); HOST_IPS=("${p[@]}")
+  HOST_USERS=("${u[@]}"); HOST_CODES=("${c[@]}")
+}
+
 # ---- 远程操作（SSH / rsync） ----------------------------------------------
 
 # 在远程执行命令。参数：user host 命令...
@@ -211,7 +280,8 @@ sync_one_asset() {
   # 先确保远端目标父目录存在
   ssh_run "$user" "$host" "mkdir -p '$code/$asset'"
   # --delete 仅在该资产子目录内部生效，不波及生产机其它文件
-  rsync -a --delete "$src" "$dst"
+  # RSYNC_NET_OPTS 提供 --partial 断点续传与 --timeout 挂死检测，配合上层重试。
+  rsync -a --delete "${RSYNC_NET_OPTS[@]}" "$src" "$dst"
 }
 
 # 同步 sha256 清单到生产机 code 根。参数：version_dir user host code
@@ -233,9 +303,30 @@ remote_write_version() {
   ssh_run "$user" "$host" "printf '%s\n' '$version' > '$code/current_version.txt'"
 }
 
+# 同步全部资产 + 校验清单，并远程 sha256 校验（一个可重试单元）。
+# 校验失败绝大多数源于传输不完整/中断，故整单元一起重试：rsync --partial 让
+# 重跑只补差量，避免重传 12G，也避免对真正的数据损坏无限重试（受 retry 次数上限约束）。
+# 参数：version_dir user host code
+sync_and_verify() {
+  local vdir="$1" user="$2" host="$3" code="$4"
+  local snap_root="$vdir/ignored_assets"
+
+  local asset
+  for asset in "${MANIFEST_PATHS[@]}"; do
+    log "  同步资产：$asset"
+    sync_one_asset "$snap_root" "$user" "$host" "$asset" "$code" \
+      || { err "资产同步失败：$asset"; return 1; }
+  done
+
+  sync_checksum "$vdir" "$user" "$host" "$code"   || { err "校验清单同步失败"; return 1; }
+  remote_verify_checksum "$user" "$host" "$code"  || { err "sha256 校验未通过"; return 1; }
+  return 0
+}
+
 # ---- 部署编排（deploy 与 rollback 共用） ----------------------------------
 #
-# 把指定版本部署到 prod_hosts.txt 中的所有生产机。
+# 把指定版本部署到 prod_hosts.txt 中的生产机。默认全部机器；若全局数组
+# DEPLOY_TARGETS 非空，则只发布到匹配（机器名或 IP）的机器。
 # 单台失败不影响其它机器，最后汇总并以失败台数作退出码。
 # 参数：version  action_label(发布/回退)
 # 依赖：已 source config.sh + lib.sh，且 validate_controller_env 已通过。
@@ -253,53 +344,84 @@ deploy_version_to_all() {
   load_manifest_paths "$mf"   # -> MANIFEST_PATHS
 
   load_hosts                  # -> HOST_NAMES/HOST_IPS/HOST_USERS
+  filter_hosts                # 按 DEPLOY_TARGETS 裁剪（为空则全部）
+  if (( ${#DEPLOY_TARGETS[@]} > 0 )); then
+    log "目标机器（指定 ${#DEPLOY_TARGETS[@]} 项）：${HOST_NAMES[*]}"
+  fi
 
-  log "${label}版本 $version （commit=$commit，资产 ${#MANIFEST_PATHS[@]} 项，生产机 ${#HOST_NAMES[@]} 台）"
+  local total="${#HOST_NAMES[@]}"
+  local parallel="${MAX_PARALLEL:-4}"
+  (( parallel < 1 )) && parallel=1
+  (( parallel > total )) && parallel="$total"
 
-  local fail=0 i
+  log "${label}版本 $version （commit=$commit，资产 ${#MANIFEST_PATHS[@]} 项，生产机 $total 台，并发 $parallel）"
+
+  # 并发下各主机日志混打会乱，故每台写独立日志文件，退出码写独立 rc 文件，
+  # 全部完成后按主机原始顺序回放，保证输出稳定、与完成先后无关。
+  local tmp; tmp="$(mktemp -d "${TMPDIR:-/tmp}/easim_deploy.XXXXXX")"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" RETURN
+
+  local i active=0
   for i in "${!HOST_NAMES[@]}"; do
-    local name="${HOST_NAMES[$i]}" ip="${HOST_IPS[$i]}" user="${HOST_USERS[$i]}" code="${HOST_CODES[$i]}"
-    log "---- [$name $ip] 开始${label}（code=$code） ----"
+    # 作业池限流：活动作业达上限时，回收一个已完成的再继续投放。
+    while (( active >= parallel )); do
+      wait -n 2>/dev/null || true
+      active=$(( active - 1 ))
+    done
 
-    if deploy_version_to_host "$vdir" "$commit" "$user" "$ip" "$version" "$code"; then
-      ok "[$name] ${label}成功 -> $version"
-    else
-      err "[$name] ${label}失败（保留现状，未写入 current_version.txt）"
-      fail=$((fail + 1))
-    fi
+    {
+      local name="${HOST_NAMES[$i]}" ip="${HOST_IPS[$i]}"
+      local user="${HOST_USERS[$i]}" code="${HOST_CODES[$i]}"
+      log "---- [$name $ip] 开始${label}（code=$code） ----"
+      if deploy_version_to_host "$vdir" "$commit" "$user" "$ip" "$version" "$code"; then
+        ok "[$name] ${label}成功 -> $version"
+        printf '0' > "$tmp/$i.rc"
+      else
+        err "[$name] ${label}失败（保留现状，未写入 current_version.txt）"
+        printf '1' > "$tmp/$i.rc"
+      fi
+    } > "$tmp/$i.log" 2>&1 &
+    active=$(( active + 1 ))
+  done
+
+  # 等待剩余作业收尾
+  wait
+
+  # 按原始顺序回放日志并汇总
+  local fail=0
+  for i in "${!HOST_NAMES[@]}"; do
+    printf '%s========== [%s %s] ==========%s\n' \
+      "$_C_BLU" "${HOST_NAMES[$i]}" "${HOST_IPS[$i]}" "$_C_RST" >&2
+    [[ -f "$tmp/$i.log" ]] && cat "$tmp/$i.log" >&2
+    local rc; rc="$(cat "$tmp/$i.rc" 2>/dev/null || echo 1)"
+    [[ "$rc" == "0" ]] || fail=$(( fail + 1 ))
   done
 
   echo
   if (( fail == 0 )); then
-    ok "全部 ${#HOST_NAMES[@]} 台${label}成功：$version"
+    ok "全部 $total 台${label}成功：$version"
   else
-    err "$fail/${#HOST_NAMES[@]} 台${label}失败，请查看上方日志"
+    err "$fail/$total 台${label}失败，请查看上方日志"
   fi
   return "$fail"
 }
 
 # 把指定版本部署到单台生产机（任一步失败即返回非 0，且不写版本号）。
+# 各步骤各自套 retry 自愈瞬时故障；sync+校验作为一个整体重试单元。
 # 参数：version_dir commit user host version code
 deploy_version_to_host() {
   local vdir="$1" commit="$2" user="$3" host="$4" version="$5" code="$6"
-  local snap_root="$vdir/ignored_assets"
 
-  ssh_check "$user" "$host"            || { err "SSH 不可达：$user@$host"; return 1; }
-  remote_checkout "$user" "$host" "$commit" "$code" \
-    || { err "git checkout 失败：$commit"; return 1; }
-
-  local asset
-  for asset in "${MANIFEST_PATHS[@]}"; do
-    log "  同步资产：$asset"
-    sync_one_asset "$snap_root" "$user" "$host" "$asset" "$code" \
-      || { err "资产同步失败：$asset"; return 1; }
-  done
-
-  sync_checksum "$vdir" "$user" "$host" "$code"   || { err "校验清单同步失败"; return 1; }
-  remote_verify_checksum "$user" "$host" "$code"  || { err "sha256 校验未通过"; return 1; }
-
+  retry "SSH 连通 $user@$host" -- \
+    ssh_check "$user" "$host"                            || { err "SSH 不可达：$user@$host"; return 1; }
+  retry "git checkout $commit" -- \
+    remote_checkout "$user" "$host" "$commit" "$code"    || { err "git checkout 失败：$commit"; return 1; }
+  retry "同步并校验资产" -- \
+    sync_and_verify "$vdir" "$user" "$host" "$code"      || { err "资产同步/校验失败"; return 1; }
   # 全部通过后才写版本号
-  remote_write_version "$user" "$host" "$version" "$code" \
+  retry "写入 current_version.txt" -- \
+    remote_write_version "$user" "$host" "$version" "$code" \
     || { err "写入 current_version.txt 失败"; return 1; }
   return 0
 }
