@@ -25,7 +25,7 @@ script_set_env/
 ├── 00_install_cuda.sh      # 安装 CUDA Toolkit 12.8（宿主机）
 ├── 01_install_host_deps.sh # 安装 Docker 29.1.3（宿主机）
 ├── 02_setup_cdi.sh         # 安装 nvidia-ctk + 生成 CDI 规格
-├── 03_build_image.sh       # 检查/生成 Dockerfile，构建 Docker 镜像
+├── 03_build_image.sh       # 检查 Dockerfile，构建 Docker 镜像
 ├── 04_start_container.sh   # 刷新 Xauth + 启动容器
 ├── 05_init_docker_env.sh   # 容器内初始化 Isaac Lab/easim 环境
 └── README.md               # 本文档
@@ -226,7 +226,7 @@ bash script_set_env/02_setup_cdi.sh
 作用：
 
 1. 检查 `EASIM_HOST_PATH`
-2. 检查或生成 `docker/Dockerfile.easimnew`
+2. 检查 `docker/Dockerfile.easim`
 3. 构建 Docker 镜像
 
 ```bash

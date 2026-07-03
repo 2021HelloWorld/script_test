@@ -13,7 +13,7 @@ ISAAC_TELEOP_PATH="/home/sensetime/Sensetime_ACE/kongxiaoqiang/easim/IsaacTeleop
 # ---------- Docker 配置 ----------
 CONTAINER_NAME="kxq_easim_container"
 IMAGE_NAME="easim:v0.3"
-DOCKERFILE="docker/Dockerfile.easimnew"
+DOCKERFILE="docker/Dockerfile.easim"
 SHM_SIZE="16g"
 ROS_DOMAIN_ID=0
 

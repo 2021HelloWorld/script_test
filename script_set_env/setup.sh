@@ -163,7 +163,7 @@ ISAAC_TELEOP_PATH="${NEW_ISAAC_TELEOP_PATH}"
 # ---------- Docker 配置 ----------
 CONTAINER_NAME="${NEW_CONTAINER_NAME}"
 IMAGE_NAME="${NEW_IMAGE_NAME}"
-DOCKERFILE="docker/Dockerfile.easimnew"
+DOCKERFILE="docker/Dockerfile.easim"
 SHM_SIZE="${NEW_SHM_SIZE}"
 ROS_DOMAIN_ID=${NEW_ROS_DOMAIN_ID}
 
