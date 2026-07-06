@@ -26,7 +26,7 @@ if [ ! -d "/easim" ]; then
 fi
 
 # ---------- Step 1: 配置 .bashrc 环境变量 ----------
-info "[1/8] 配置 .bashrc 环境变量..."
+info "[1/7] 配置 .bashrc 环境变量..."
 
 # 获取宿主机 DISPLAY 编号（默认 :0）
 HOST_DISPLAY="${DISPLAY:-:0}"
@@ -73,7 +73,7 @@ fi
 info "DISPLAY=${DISP_NUM}, OMNI_KIT_ALLOW_ROOT=1 已写入 .bashrc；cu12 LD_LIBRARY_PATH 已写入 profile.d ✓"
 
 # ---------- Step 2: 创建 isaac_workspace 软链接 ----------
-info "[2/8] 创建 /easim/isaac_workspace 软链接..."
+info "[2/7] 创建 /easim/isaac_workspace 软链接..."
 if [ -L "/easim/isaac_workspace" ]; then
     warn "软链接已存在，跳过"
 elif [ -d "/easim/isaac_workspace" ]; then
@@ -89,18 +89,18 @@ if [ ! -f "$ISAACLAB_SH" ]; then
 fi
 
 # ---------- Step 3: 安装 Isaac Lab 依赖 ----------
-info "[3/8] 安装 Isaac Lab 依赖（isaaclab.sh --install）..."
+info "[3/7] 安装 Isaac Lab 依赖（isaaclab.sh --install）..."
 cd /easim/isaac_workspace/IsaacLab
 ./isaaclab.sh --install
 info "Isaac Lab 安装完成 ✓"
 
 # ---------- Step 4: 将 easim 装入 Isaac Sim bundled Python ----------
-info "[4/8] 将 easim 安装到 Isaac Sim Python（pip install -e）..."
+info "[4/7] 将 easim 安装到 Isaac Sim Python（pip install -e）..."
 "$ISAACSIM_PYTHON" -m pip install -e /easim
 info "easim 安装完成 ✓"
 
 # ---------- Step 5: 安装 isaacteleop ----------
-info "[5/8] 安装 isaacteleop（CloudXR 遥操 Python 包）..."
+info "[5/7] 安装 isaacteleop（CloudXR 遥操 Python 包）..."
 "$ISAACSIM_PYTHON" -m pip install \
     'isaacteleop[cloudxr]==1.3.43rc1' \
     --extra-index-url https://pypi.nvidia.com
@@ -116,15 +116,10 @@ NV_DEVICE_PROFILE=auto-webrtc
 CLOUDXR_EOF
 info "CloudXR 配置完成 ✓"
 
-# ---------- Step 5: 安装可选工具 ----------
-info "[6/8] 安装 ffmpeg（h264 → mp4 转换工具）..."
-apt update -qq && apt install -y ffmpeg
-info "ffmpeg 安装完成 ✓"
-
-info "[7/8] 安装 pyarrow（fastwam_robotwin2.0 数据验证）..."
+info "[6/7] 安装 pyarrow（fastwam_robotwin2.0 数据验证）..."
 "$ISAACLAB_SH" -p -m pip install pyarrow
 
-info "[8/8] 安装遥操 pink IK 依赖及回放环境修复包..."
+info "[7/7] 安装遥操 pink IK 依赖及回放环境修复包..."
 "$ISAACLAB_SH" -p -m pip install "numpy>=1.26.0,<2.0"
 "$ISAACLAB_SH" -p -m pip install --no-deps "osqp>=1.0.0,<2.0.0"
 "$ISAACSIM_PYTHON" -m pip install "scipy==1.15.3" "warp-lang==1.12.1"

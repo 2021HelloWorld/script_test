@@ -98,50 +98,24 @@ bash script_set_env/easim.sh
 
 ## 容器状态管理
 
-宿主机重启、退出桌面会话后重新登录、容器停止、图形界面授权失效、需要进入或重建容器时，进入容器状态管理：
+宿主机重启、退出桌面会话后重新登录、容器停止、图形界面授权失效、需要进入或重建容器时，进入容器环境管理：
 
 ```bash
 bash script_set_env/easim.sh
 ```
 
-选择 `2) 容器状态管理`。
+选择 `2) 环境管理` → `1) 容器环境管理`。
 
 子菜单提供：
 
-1. 查看容器状态
-2. 启动/恢复容器（刷新图形授权）
-3. 进入容器 shell
-4. 停止容器
-5. 重启容器
-6. 重建容器
-7. 初始化容器环境
+1. 启动容器（保留容器数据，刷新图形授权）
+2. 进入容器
+3. 停止容器
+4. 恢复容器（删除旧容器并重新安装依赖）
+
+> 查看当前配置、镜像和容器状态：主菜单选 `3) 环境状态查看`。
 
 ---
-
-## 进入容器
-
-```bash
-docker exec -it kxq_easim_container /bin/bash
-```
-## 常用命令
-
-```bash
-bash script_set_env/easim.sh setup      # 首次配置或修改 config.sh
-bash script_set_env/easim.sh check      # 环境预检
-bash script_set_env/easim.sh deploy     # 首次部署 Docker 环境
-bash script_set_env/easim.sh container  # 容器状态管理
-bash script_set_env/easim.sh restart    # 启动/恢复容器
-bash script_set_env/easim.sh init       # 初始化容器内 easim/Isaac Lab 环境
-bash script_set_env/easim.sh verify     # Isaac Sim / Isaac Lab 基础环境验证
-bash script_set_env/easim.sh status     # 查看配置、镜像、容器状态
-```
-
-维护命令：
-
-```bash
-bash script_set_env/easim.sh cdi        # 执行 02_setup_cdi.sh
-bash script_set_env/easim.sh build      # 执行 03_build_image.sh
-```
 
 ## 各脚本说明
 
@@ -272,11 +246,13 @@ docker exec -it kxq_easim_container /bin/bash
 
 作用：
 
-1. 写入容器内 `.bashrc` 环境变量
-2. 创建 `/easim/isaac_workspace -> /data/isaac_workspace` 软链接
-3. 执行 `isaaclab.sh --install`
-4. 将 easim 安装到 Isaac Sim bundled Python
-5. 安装 ffmpeg、pyarrow、pink IK 依赖、回放环境修复包
+1. 写入容器内 `.bashrc` 环境变量（`DISPLAY`、`OMNI_KIT_ALLOW_ROOT`）
+2. 写入 cu12 动态库搜索路径（`/etc/profile.d/easim_cuda.sh`）
+3. 创建 `/easim/isaac_workspace -> /data/isaac_workspace` 软链接
+4. 执行 `isaaclab.sh --install`
+5. 将 easim 安装到 Isaac Sim bundled Python
+6. 安装 isaacteleop（CloudXR 遥操 Python 包）+ 配置 CloudXR 环境
+7. 安装 pyarrow、pink IK 依赖、回放环境修复包
 
 推荐从宿主机执行统一入口：
 
@@ -337,7 +313,7 @@ bash script_set_env/easim.sh setup
 bash script_set_env/easim.sh container
 ```
 
-选择 `2) 启动/恢复容器（刷新图形授权）` 即可自动修复。
+选择 `2) 环境管理` → `1) 容器环境管理`，选 `1) 启动容器` 即可自动修复。
 
 ### Docker daemon 当前用户不可访问
 
@@ -366,13 +342,14 @@ bash script_set_env/easim.sh deploy
 `/deploy_scripts` 是容器内路径，宿主机上不存在。先启动容器，再进入容器执行：
 
 ```bash
-bash script_set_env/easim.sh restart
+bash script_set_env/easim.sh start
 docker exec -it kxq_easim_container /bin/bash
 bash /deploy_scripts/05_init_docker_env.sh
 ```
 
-也可以直接从宿主机执行：
+也可以从宿主机直接执行：
 
 ```bash
-bash script_set_env/easim.sh init
+bash script_set_env/easim.sh container
+# 选 2) 进入容器，再手动执行 bash /deploy_scripts/05_init_docker_env.sh
 ```

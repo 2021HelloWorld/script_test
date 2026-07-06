@@ -71,6 +71,7 @@ RUN if [ -n "${TORCH_VERSION}" ]; then \
 
 RUN apt-get update && apt-get install -y \
     ros-humble-pcl-ros ros-humble-pcl-conversions libc++1 libc++abi1 \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PATH=/usr/local/cuda/bin:$PATH
